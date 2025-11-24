@@ -1,0 +1,9 @@
+checkpoints/
+ml-1m.zip
+ml-1m/
+runs/
+venv/
+
+
+# Ignore Python bytecode caches for the plum package
+plum/__pycache__/
