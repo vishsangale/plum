@@ -46,7 +46,7 @@ def train_llm():
     # Hyperparameters
     batch_size = 4 # Small batch size for GPT-2 on local machine
     lr = 5e-5 
-    epochs = 3
+    epochs = 1
     
     # Setup TensorBoard
     writer = SummaryWriter('runs/llm_training')
