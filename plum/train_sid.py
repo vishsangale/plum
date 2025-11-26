@@ -132,7 +132,7 @@ def train_sid():
                             codebook_size = model.rqvae.codebook_sizes[level]
                             # Use epoch usage for revival to catch codes that die during training
                             # The > 1000 batch warmup ensures we don't kill codes just because they haven't been seen YET in this epoch
-                            used_codes = all_time_unique_codes[level]
+                            used_codes = epoch_unique_codes[level]
                             unused_codes = set(range(codebook_size)) - used_codes
                             
                             if len(unused_codes) > 0:
@@ -141,15 +141,21 @@ def train_sid():
                                 batch_embeddings = anchor_embeddings[0]  # (batch_size, 128)
                                 
                                 # For each unused code, assign a random embedding from the batch
+                                revived_indices = []
                                 for unused_idx in list(unused_codes)[:min(len(unused_codes), len(batch_embeddings))]:
                                     random_emb_idx = torch.randint(0, len(batch_embeddings), (1,)).item()
                                     # Encode the embedding to get the latent representation
                                     z = model.encoder([batch_embeddings[random_emb_idx:random_emb_idx+1]])
                                     # Assign to codebook
                                     model.rqvae.codebooks[level].weight[unused_idx] = z[0]
+                                    revived_indices.append(unused_idx)
+                                
+                                # Mark revived codes as used in this epoch so they aren't immediately reset again
+                                epoch_unique_codes[level].update(revived_indices)
+                                all_time_unique_codes[level].update(revived_indices)
                                 
                                 if batch_idx % 500 == 0:  # Print less frequently
-                                    print(f"  Reset {min(len(unused_codes), len(batch_embeddings))} unused codes at level {level}")
+                                    print(f"  Reset {len(revived_indices)} unused codes at level {level}")
                 
                 # Print every 100 batches
                 if batch_idx % 100 == 0:

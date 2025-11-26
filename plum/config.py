@@ -43,13 +43,6 @@ class PLUMConfig:
     """
     Configuration for PLUM SID model and training.
     """
-    # Model Architecture
-    # Moved to ModelConfig
-    
-    # Training
-    
-    # Training
-    # Moved to ModelConfig
     
     # Datasets
     dataset_name: str = "movielens-10m"

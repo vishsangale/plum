@@ -7,7 +7,7 @@ import zipfile
 from plum.config import PLUMConfig
 
 def download_movielens():
-    config = PLUMConfig()
+    config = PLUMConfig(dataset_name="movielens-1m")
     raw_dir = config.active_dataset.raw_data_dir
     os.makedirs(raw_dir, exist_ok=True)
     
@@ -30,7 +30,7 @@ def prepare_data():
     # Load Movies
     # MovieID::Title::Genres
     print("Loading Movies...")
-    config = PLUMConfig()
+    config = PLUMConfig(dataset_name="movielens-1m")
     raw_dir = config.active_dataset.raw_data_dir
     movies_df = pd.read_csv(
         os.path.join(raw_dir, "ml-1m/movies.dat"), 
@@ -85,9 +85,11 @@ def prepare_data():
     idx_to_movie_id = {i: mid for mid, i in movie_id_to_idx.items()}
     
     # Save embeddings tensor
-    os.makedirs("plum/data/movielens-1m", exist_ok=True)
-    torch.save(embeddings, "plum/data/movielens-1m/movie_embeddings.pt")
-    torch.save(movie_id_to_idx, "plum/data/movielens-1m/movie_id_map.pt")
+    os.makedirs(os.path.dirname(config.active_dataset.embeddings_path), exist_ok=True)
+    torch.save(embeddings, config.active_dataset.embeddings_path)
+    # Save ID map in the same directory
+    id_map_path = os.path.join(os.path.dirname(config.active_dataset.embeddings_path), "movie_id_map.pt")
+    torch.save(movie_id_to_idx, id_map_path)
     print(f"Saved embeddings for {len(embeddings)} movies.")
     
     # Load Ratings (User History)
@@ -116,7 +118,7 @@ def prepare_data():
         if len(indices) >= 5: # Only keep sequences with at least 5 items
             user_sequences.append(indices)
             
-    torch.save(user_sequences, "plum/data/movielens-1m/user_sequences.pt")
+    torch.save(user_sequences, config.active_dataset.user_sequences_path)
     print(f"Saved {len(user_sequences)} user sequences.")
 
 if __name__ == "__main__":
