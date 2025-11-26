@@ -9,10 +9,10 @@ def prepare_llm_data():
     print("Initializing PLUM LLM to get tokenizer...")
     # Initialize model to get the tokenizer with special tokens
     # Using defaults: num_levels=3, base_codebook_size=512
-    plum_model = PLUM_LLM()
+    config = PLUMConfig()
+    plum_model = PLUM_LLM(num_levels=config.active_model_config.num_levels, base_codebook_size=config.active_model_config.base_codebook_size)
     
     print("Loading data...")
-    config = PLUMConfig()
     sequences_path = config.active_dataset.user_sequences_path
     sids_path = config.active_dataset.movie_sids_json_path
     

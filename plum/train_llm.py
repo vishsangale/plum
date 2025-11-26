@@ -45,17 +45,15 @@ def collate_fn(batch):
 
 def train_llm():
     config = PLUMConfig()
-    # Hyperparameters
-    batch_size = 4 # Small batch size for GPT-2 on local machine
-    lr = 5e-5 
-    epochs = 1
+    # Hyperparameters from config
+    # batch_size, lr, epochs are now in config.active_model_config
     
     # Setup TensorBoard
     writer = SummaryWriter('runs/llm_training')
     
     # Initialize Model
     # Using distilgpt2 for faster training
-    plum_model = PLUM_LLM(model_name='distilgpt2')
+    plum_model = PLUM_LLM(model_name='distilgpt2', num_levels=config.active_model_config.num_levels, base_codebook_size=config.active_model_config.base_codebook_size)
     
     # Move to device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -68,16 +66,16 @@ def train_llm():
         raise FileNotFoundError(f"Dataset not found at {dataset_path}")
         
     dataset = MovieLensLLMDataset(dataset_path)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
+    dataloader = DataLoader(dataset, batch_size=config.active_model_config.batch_size, shuffle=True, collate_fn=collate_fn)
     
-    optimizer = optim.AdamW(plum_model.parameters(), lr=lr)
+    optimizer = optim.AdamW(plum_model.parameters(), lr=config.active_model_config.learning_rate)
     
     print(f"Starting LLM Training (distilgpt2) on {device}...")
     
     global_step = 0
-    for epoch in range(epochs):
+    for epoch in range(config.active_model_config.epochs):
         total_loss = 0
-        progress_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}")
+        progress_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{config.active_model_config.epochs}")
         
         for batch_idx, (input_ids, attention_mask) in enumerate(progress_bar):
             input_ids = input_ids.to(device)
@@ -99,7 +97,7 @@ def train_llm():
             global_step += 1
             
         avg_loss = total_loss / len(dataloader)
-        print(f"Epoch {epoch+1}/{epochs}, Avg Loss: {avg_loss:.4f}")
+        print(f"Epoch {epoch+1}/{config.active_model_config.epochs}, Avg Loss: {avg_loss:.4f}")
         writer.add_scalar('LLM/Epoch_Loss', avg_loss, epoch)
         
         # Save checkpoint every epoch

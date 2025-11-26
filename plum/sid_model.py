@@ -50,7 +50,7 @@ class MultiModalEncoder(nn.Module):
         
         # Project
         z = self.projector(z_tilde)
-        return z
+        return F.normalize(z, p=2, dim=-1)
 
 class RQVAE(nn.Module):
     """
@@ -78,7 +78,7 @@ class RQVAE(nn.Module):
             # We use an Embedding layer for this
             self.codebooks.append(nn.Embedding(size, input_dim))
             
-    def forward(self, z: torch.Tensor, training: bool = True):
+    def forward(self, z: torch.Tensor, training: bool = True, commitment_beta: float = 0.25, dropout_prob: float = 0.0):
         """
         Args:
             z: Input tensor of shape (batch_size, input_dim)
@@ -135,18 +135,21 @@ class RQVAE(nn.Module):
             # Term 1: Encoder update (Commitment loss) -> beta * ||residual - sg[z_e]||^2
             # Term 2: Codebook update -> ||sg[residual] - z_e||^2
             
-            beta = 0.25  # Restored for codebook stability
-            term1 = beta * torch.mean((residual - z_e.detach()) ** 2)
+            # beta = 0.25  # Restored for codebook stability
+            term1 = commitment_beta * torch.mean((residual - z_e.detach()) ** 2)
             term2 = torch.mean((residual.detach() - z_e) ** 2)
             commitment_loss += term1 + term2
             
-            # Update residual for next level
-            # r_{l+1} = r_l - e_l
-            residual = residual - z_e
-            
-            # Accumulate quantized vector if within mask
-            if l < r:
-                z_q = z_q + z_e
+            # Level Dropout Logic
+            if training and l == 0 and dropout_prob > 0 and torch.rand(1).item() < dropout_prob:
+                # Dropped: Do NOT use z_e for residual update or z_q accumulation
+                # We still computed commitment loss above, so L0 is trained to match z
+                pass
+            else:
+                # Not Dropped: Update residual and accumulate z_q
+                residual = residual - z_e
+                if l < r:
+                    z_q = z_q + z_e
                 
         # Straight-through estimator for backprop
         # z_q = z + (z_q - z).detach() 
@@ -180,12 +183,12 @@ class PLUM_SID(nn.Module):
             ) for dim in input_dims
         ])
         
-    def forward(self, inputs: list[torch.Tensor], training: bool = True):
+    def forward(self, inputs: list[torch.Tensor], training: bool = True, commitment_beta: float = 0.25, dropout_prob: float = 0.0):
         # 1. Encode and Fuse
         z = self.encoder(inputs)
         
         # 2. Quantize
-        z_q, codes, commitment_loss = self.rqvae(z, training=training)
+        z_q, codes, commitment_loss = self.rqvae(z, training=training, commitment_beta=commitment_beta, dropout_prob=dropout_prob)
         
         # 3. Reconstruct
         reconstructions = []

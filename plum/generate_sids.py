@@ -22,7 +22,7 @@ def generate_sids():
     
     # Load Model
     print("Loading model...")
-    model = PLUM_SID(config.active_dataset.input_dims, config.latent_dim, config.output_dim, config.num_levels, config.base_codebook_size)
+    model = PLUM_SID(config.active_dataset.input_dims, config.active_model_config.latent_dim, config.active_model_config.output_dim, config.active_model_config.num_levels, config.active_model_config.base_codebook_size)
     checkpoint_path = os.path.join(config.active_dataset.checkpoint_dir, config.sid_model_checkpoint)
     
     if not os.path.exists(checkpoint_path):
@@ -46,6 +46,7 @@ def generate_sids():
             batch = torch.nn.functional.normalize(batch, p=2, dim=-1)
             
             # Forward pass (just encoder + rqvae)
+            # We need to wrap batch in a list because MultiModalEncoder expects a list
             # We need to wrap batch in a list because MultiModalEncoder expects a list
             z = model.encoder([batch])
             

@@ -11,7 +11,7 @@ def load_models():
     # 1. Load SID Model
     config = PLUMConfig()
     
-    sid_model = PLUM_SID(config.active_dataset.input_dims, config.latent_dim, config.output_dim, config.num_levels, config.base_codebook_size)
+    sid_model = PLUM_SID(config.active_dataset.input_dims, config.active_model_config.latent_dim, config.active_model_config.output_dim, config.active_model_config.num_levels, config.active_model_config.base_codebook_size)
     sid_checkpoint_path = os.path.join(config.active_dataset.checkpoint_dir, config.sid_model_checkpoint)
     sid_model.load_state_dict(torch.load(sid_checkpoint_path, map_location=device))
     sid_model.to(device)
@@ -29,7 +29,7 @@ def load_models():
         print("Warning: Checkpoint not found, using base distilgpt2 (untrained)")
         llm_path = "distilgpt2"
         
-    llm_model = PLUM_LLM(model_name=llm_path, num_levels=config.num_levels, base_codebook_size=config.base_codebook_size)
+    llm_model = PLUM_LLM(model_name=llm_path, num_levels=config.active_model_config.num_levels, base_codebook_size=config.active_model_config.base_codebook_size)
     llm_model.to(device)
     llm_model.eval()
     print(f"LLM loaded from {llm_path}.")
@@ -67,7 +67,7 @@ def recommend_next_movie(history_movie_ids, sid_model, llm_model, movie_sids, si
     input_ids = torch.tensor([history_tokens]).to(device)
     
     # 2. Generate Next SID (3 tokens)
-    num_levels = config.num_levels
+    num_levels = config.active_model_config.num_levels
     generated_ids = input_ids
     
     print(f"Generating next item (History length: {len(history_movie_ids)})...")
