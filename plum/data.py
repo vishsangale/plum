@@ -1,5 +1,6 @@
 import torch
 from torch.utils.data import Dataset
+from plum.config import DatasetConfig
 
 class SyntheticSIDDataset(Dataset):
     """
@@ -31,15 +32,15 @@ class SyntheticSIDDataset(Dataset):
         
         return anchor_embeddings, positive_embeddings
 
-class MovieLensSIDDataset(Dataset):
+class PLUMSIDDataset(Dataset):
     """
-    Real MovieLens data for SID training.
-    Uses pre-computed BERT embeddings.
-    Generates pairs (Movie A, Movie B) where B follows A in a user's history.
+    Generic dataset for SID training.
+    Uses pre-computed embeddings and sequences.
     """
-    def __init__(self, embeddings_path: str, sequences_path: str):
-        self.embeddings = torch.load(embeddings_path) # (Num_Movies, 384)
-        self.sequences = torch.load(sequences_path)
+    def __init__(self, config: DatasetConfig):
+        self.config = config
+        self.embeddings = torch.load(config.embeddings_path)
+        self.sequences = torch.load(config.user_sequences_path)
         
         # Pre-compute pairs for faster training
         self.pairs = []

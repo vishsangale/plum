@@ -4,19 +4,16 @@ from plum.sid_model import PLUM_SID
 import json
 import os
 from tqdm import tqdm
+from plum.config import PLUMConfig
 
 def generate_sids():
     # Configuration
-    input_dims = [128]
-    latent_dim = 256
-    output_dim = 256
-    num_levels = 3  # Updated to 3
-    base_codebook_size = 512 # Updated to 512
+    config = PLUMConfig()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # Load embeddings
     print("Loading embeddings...")
-    embeddings_path = "plum/movie_embeddings.pt"
+    embeddings_path = config.active_dataset.embeddings_path
     if not os.path.exists(embeddings_path):
         raise FileNotFoundError(f"Embeddings file not found at {embeddings_path}")
         
@@ -25,8 +22,8 @@ def generate_sids():
     
     # Load Model
     print("Loading model...")
-    model = PLUM_SID(input_dims, latent_dim, output_dim, num_levels, base_codebook_size)
-    checkpoint_path = "checkpoints/sid_model.pth"
+    model = PLUM_SID(config.active_dataset.input_dims, config.latent_dim, config.output_dim, config.num_levels, config.base_codebook_size)
+    checkpoint_path = os.path.join(config.active_dataset.checkpoint_dir, config.sid_model_checkpoint)
     
     if not os.path.exists(checkpoint_path):
          raise FileNotFoundError(f"Checkpoint not found at {checkpoint_path}")
@@ -77,8 +74,8 @@ def generate_sids():
     print(f"Uniqueness Rate: {num_unique / num_movies * 100:.2f}%")
         
     # Save results
-    output_path_json = "plum/movie_sids.json"
-    output_path_pt = "plum/movie_sids.pt"
+    output_path_json = config.active_dataset.movie_sids_json_path
+    output_path_pt = config.active_dataset.movie_sids_pt_path
     
     with open(output_path_json, 'w') as f:
         json.dump(sid_map, f, indent=2)

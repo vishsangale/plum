@@ -3,7 +3,8 @@ ml-1m.zip
 ml-1m/
 runs/
 venv/
-
+.vscode/
 
 # Ignore Python bytecode caches for the plum package
 plum/__pycache__/
+plum/data/

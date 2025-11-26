@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from plum.llm_model import PLUM_LLM
+from plum.config import PLUMConfig
 import os
 from tqdm import tqdm
 
@@ -43,6 +44,7 @@ def collate_fn(batch):
     return padded_batch, attention_masks
 
 def train_llm():
+    config = PLUMConfig()
     # Hyperparameters
     batch_size = 4 # Small batch size for GPT-2 on local machine
     lr = 5e-5 
@@ -61,7 +63,7 @@ def train_llm():
     plum_model.train()
     
     # Load Dataset
-    dataset_path = "plum/llm_dataset.pt"
+    dataset_path = config.active_dataset.llm_dataset_path
     if not os.path.exists(dataset_path):
         raise FileNotFoundError(f"Dataset not found at {dataset_path}")
         
@@ -101,12 +103,13 @@ def train_llm():
         writer.add_scalar('LLM/Epoch_Loss', avg_loss, epoch)
         
         # Save checkpoint every epoch
-        os.makedirs("checkpoints", exist_ok=True)
-        plum_model.save_pretrained(f"checkpoints/plum_llm_epoch_{epoch+1}")
+        os.makedirs(config.active_dataset.checkpoint_dir, exist_ok=True)
+        plum_model.save_pretrained(os.path.join(config.active_dataset.checkpoint_dir, f"plum_llm_epoch_{epoch+1}"))
         
     print("Training complete!")
-    plum_model.save_pretrained("checkpoints/plum_llm_final")
-    print("Final model saved to checkpoints/plum_llm_final")
+    final_path = os.path.join(config.active_dataset.checkpoint_dir, config.llm_checkpoint_dir)
+    plum_model.save_pretrained(final_path)
+    print(f"Final model saved to {final_path}")
 
 if __name__ == "__main__":
     train_llm()

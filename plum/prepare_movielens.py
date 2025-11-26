@@ -4,17 +4,25 @@ import torch
 from sentence_transformers import SentenceTransformer
 from urllib.request import urlretrieve
 import zipfile
+from plum.config import PLUMConfig
 
 def download_movielens():
+    config = PLUMConfig()
+    raw_dir = config.active_dataset.raw_data_dir
+    os.makedirs(raw_dir, exist_ok=True)
+    
+    zip_path = os.path.join(raw_dir, "ml-1m.zip")
+    extracted_path = os.path.join(raw_dir, "ml-1m")
+    
     url = "https://files.grouplens.org/datasets/movielens/ml-1m.zip"
-    if not os.path.exists("ml-1m.zip"):
+    if not os.path.exists(zip_path):
         print("Downloading MovieLens 1M...")
-        urlretrieve(url, "ml-1m.zip")
+        urlretrieve(url, zip_path)
         
-    if not os.path.exists("ml-1m"):
+    if not os.path.exists(extracted_path):
         print("Extracting...")
-        with zipfile.ZipFile("ml-1m.zip", 'r') as zip_ref:
-            zip_ref.extractall(".")
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(raw_dir)
 
 def prepare_data():
     download_movielens()
@@ -22,8 +30,10 @@ def prepare_data():
     # Load Movies
     # MovieID::Title::Genres
     print("Loading Movies...")
+    config = PLUMConfig()
+    raw_dir = config.active_dataset.raw_data_dir
     movies_df = pd.read_csv(
-        "ml-1m/movies.dat", 
+        os.path.join(raw_dir, "ml-1m/movies.dat"), 
         sep="::", 
         engine="python", 
         names=["MovieID", "Title", "Genres"],
@@ -75,15 +85,16 @@ def prepare_data():
     idx_to_movie_id = {i: mid for mid, i in movie_id_to_idx.items()}
     
     # Save embeddings tensor
-    torch.save(embeddings, "plum/movie_embeddings.pt")
-    torch.save(movie_id_to_idx, "plum/movie_id_map.pt")
+    os.makedirs("plum/data/movielens-1m", exist_ok=True)
+    torch.save(embeddings, "plum/data/movielens-1m/movie_embeddings.pt")
+    torch.save(movie_id_to_idx, "plum/data/movielens-1m/movie_id_map.pt")
     print(f"Saved embeddings for {len(embeddings)} movies.")
     
     # Load Ratings (User History)
     # UserID::MovieID::Rating::Timestamp
     print("Loading Ratings...")
     ratings_df = pd.read_csv(
-        "ml-1m/ratings.dat", 
+        os.path.join(raw_dir, "ml-1m/ratings.dat"), 
         sep="::", 
         engine="python", 
         names=["UserID", "MovieID", "Rating", "Timestamp"],
@@ -105,7 +116,7 @@ def prepare_data():
         if len(indices) >= 5: # Only keep sequences with at least 5 items
             user_sequences.append(indices)
             
-    torch.save(user_sequences, "plum/user_sequences.pt")
+    torch.save(user_sequences, "plum/data/movielens-1m/user_sequences.pt")
     print(f"Saved {len(user_sequences)} user sequences.")
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ import json
 import os
 from tqdm import tqdm
 from plum.llm_model import PLUM_LLM
+from plum.config import PLUMConfig
 
 def prepare_llm_data():
     print("Initializing PLUM LLM to get tokenizer...")
@@ -11,8 +12,9 @@ def prepare_llm_data():
     plum_model = PLUM_LLM()
     
     print("Loading data...")
-    sequences_path = "plum/user_sequences.pt"
-    sids_path = "plum/movie_sids.json"
+    config = PLUMConfig()
+    sequences_path = config.active_dataset.user_sequences_path
+    sids_path = config.active_dataset.movie_sids_json_path
     
     if not os.path.exists(sequences_path) or not os.path.exists(sids_path):
         raise FileNotFoundError("Data files not found. Run generate_sids.py first.")
@@ -55,7 +57,7 @@ def prepare_llm_data():
     print(f"Processed {len(llm_dataset)} sequences.")
     print(f"Skipped {skipped_movies}/{total_movies} movies (missing SIDs).")
     
-    output_path = "plum/llm_dataset.pt"
+    output_path = config.active_dataset.llm_dataset_path
     torch.save(llm_dataset, output_path)
     print(f"Saved LLM dataset to {output_path}")
 

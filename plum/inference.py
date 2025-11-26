@@ -1,6 +1,7 @@
 import torch
 from plum.sid_model import PLUM_SID
 from plum.llm_model import PLUM_LLM
+from plum.config import PLUMConfig
 import json
 import os
 
@@ -8,39 +9,36 @@ def load_models():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # 1. Load SID Model
-    input_dims = [128] # MovieLens embeddings are 128-dim
-    latent_dim = 256
-    output_dim = 256
-    num_levels = 3 # Updated config
-    base_codebook_size = 512 # Updated config
+    config = PLUMConfig()
     
-    sid_model = PLUM_SID(input_dims, latent_dim, output_dim, num_levels, base_codebook_size)
-    sid_model.load_state_dict(torch.load("checkpoints/sid_model.pth", map_location=device))
+    sid_model = PLUM_SID(config.active_dataset.input_dims, config.latent_dim, config.output_dim, config.num_levels, config.base_codebook_size)
+    sid_checkpoint_path = os.path.join(config.active_dataset.checkpoint_dir, config.sid_model_checkpoint)
+    sid_model.load_state_dict(torch.load(sid_checkpoint_path, map_location=device))
     sid_model.to(device)
     sid_model.eval()
     print("SID Model loaded.")
     
     # 2. Load LLM
     # Load from final checkpoint
-    llm_path = "checkpoints/plum_llm_final"
+    llm_path = os.path.join(config.active_dataset.checkpoint_dir, config.llm_checkpoint_dir)
     if not os.path.exists(llm_path):
         # Fallback to epoch 1 if final not ready
-        llm_path = "checkpoints/plum_llm_epoch_1"
+        llm_path = os.path.join(config.active_dataset.checkpoint_dir, "plum_llm_epoch_1")
         
     if not os.path.exists(llm_path):
         print("Warning: Checkpoint not found, using base distilgpt2 (untrained)")
         llm_path = "distilgpt2"
         
-    llm_model = PLUM_LLM(model_name=llm_path, num_levels=num_levels, base_codebook_size=base_codebook_size)
+    llm_model = PLUM_LLM(model_name=llm_path, num_levels=config.num_levels, base_codebook_size=config.base_codebook_size)
     llm_model.to(device)
     llm_model.eval()
     print(f"LLM loaded from {llm_path}.")
     
     return sid_model, llm_model, device
 
-def load_mappings():
+def load_mappings(config):
     # Load SID -> MovieID mapping
-    with open("plum/movie_sids.json", 'r') as f:
+    with open(config.active_dataset.movie_sids_json_path, 'r') as f:
         movie_sids = json.load(f) # MovieID -> SID String
         
     # Create reverse mapping: SID String -> List of MovieIDs
@@ -52,7 +50,7 @@ def load_mappings():
         
     return movie_sids, sid_to_movies
 
-def recommend_next_movie(history_movie_ids, sid_model, llm_model, movie_sids, sid_to_movies, device):
+def recommend_next_movie(history_movie_ids, sid_model, llm_model, movie_sids, sid_to_movies, device, config):
     # 1. Convert History to SID Tokens
     history_tokens = []
     
@@ -69,7 +67,7 @@ def recommend_next_movie(history_movie_ids, sid_model, llm_model, movie_sids, si
     input_ids = torch.tensor([history_tokens]).to(device)
     
     # 2. Generate Next SID (3 tokens)
-    num_levels = 3
+    num_levels = config.num_levels
     generated_ids = input_ids
     
     print(f"Generating next item (History length: {len(history_movie_ids)})...")
@@ -110,12 +108,13 @@ def recommend_next_movie(history_movie_ids, sid_model, llm_model, movie_sids, si
     return recommended_movies, generated_sid_str
 
 def run_inference():
+    config = PLUMConfig()
     sid_model, llm_model, device = load_models()
-    movie_sids, sid_to_movies = load_mappings()
+    movie_sids, sid_to_movies = load_mappings(config)
     
     # Simulate User History (from real data)
     # Let's pick a sequence from the dataset
-    user_sequences = torch.load("plum/user_sequences.pt")
+    user_sequences = torch.load(config.active_dataset.user_sequences_path)
     test_seq = user_sequences[0][:5] # First 5 movies of first user
     
     print(f"\nUser History (Movie IDs): {test_seq}")
@@ -123,7 +122,7 @@ def run_inference():
     for mid in test_seq:
         print(f"  {mid}: {movie_sids.get(str(mid))}")
         
-    recommendations, gen_sid = recommend_next_movie(test_seq, sid_model, llm_model, movie_sids, sid_to_movies, device)
+    recommendations, gen_sid = recommend_next_movie(test_seq, sid_model, llm_model, movie_sids, sid_to_movies, device, config)
     
     print(f"\nRecommended Movies: {recommendations}")
     if not recommendations:

@@ -3,35 +3,28 @@ from torch.utils.data import DataLoader
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from plum.sid_model import PLUM_SID, ContrastiveLoss
-from plum.data import SyntheticSIDDataset, MovieLensSIDDataset
+from plum.data import SyntheticSIDDataset, PLUMSIDDataset
+from plum.config import PLUMConfig
 import os
 
 def train_sid():
     # Hyperparameters
-    # TinyBERT output dim is 128
-    input_dims = [128] 
-    latent_dim = 256
-    output_dim = 256
-    num_levels = 3  # Reduced from 4
-    batch_size = 128  # Larger batch for more negatives in contrastive loss
-    lr = 1e-3
-    epochs = 5
-    base_codebook_size = 512  # Reduced from 2048
+    config = PLUMConfig()
     
     # Setup TensorBoard
     writer = SummaryWriter('runs/sid_training')
     
     # Setup
-    # dataset = SyntheticSIDDataset(num_samples=1000, input_dims=input_dims)
-    dataset = MovieLensSIDDataset("plum/movie_embeddings.pt", "plum/user_sequences.pt")
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    # dataset = SyntheticSIDDataset(num_samples=1000, input_dims=config.active_dataset.input_dims)
+    dataset = PLUMSIDDataset(config.active_dataset)
+    dataloader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True)
     
-    model = PLUM_SID(input_dims, latent_dim, output_dim, num_levels, base_codebook_size)
+    model = PLUM_SID(config.active_dataset.input_dims, config.latent_dim, config.output_dim, config.num_levels, config.base_codebook_size)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    contrastive_loss_fn = ContrastiveLoss(temperature=0.07)
+    optimizer = optim.Adam(model.parameters(), lr=config.learning_rate)
+    contrastive_loss_fn = ContrastiveLoss(temperature=config.contrastive_temperature)
     print(f"Contrastive Loss Temperature: {contrastive_loss_fn.temperature}")
     
     print("Starting SID Training...")
@@ -39,13 +32,13 @@ def train_sid():
     
     global_step = 0
     
-    for epoch in range(epochs):
+    for epoch in range(config.epochs):
         total_loss = 0
         total_recon_loss = 0
         total_commitment_loss = 0
         total_contrastive_loss = 0
         total_cosine_sim = 0
-        epoch_unique_codes = [set() for _ in range(num_levels)]
+        epoch_unique_codes = [set() for _ in range(config.num_levels)]
         model.train()
         
         # Progressive contrastive weight schedule
@@ -57,7 +50,7 @@ def train_sid():
             contrastive_weight = 5.0
         
         print(f"\n{'='*60}")
-        print(f"Epoch {epoch+1}/{epochs} - Contrastive Weight: {contrastive_weight}")
+        print(f"Epoch {epoch+1}/{config.epochs} - Contrastive Weight: {contrastive_weight}")
         print(f"{'='*60}\n")
         
         for batch_idx, (anchor_embeddings, positive_embeddings) in enumerate(dataloader):
@@ -69,7 +62,7 @@ def train_sid():
             reconstructions, z_q, codes, commitment_loss = model(anchor_embeddings)
             
             # Track unique codes per level
-            for level in range(num_levels):
+            for level in range(config.num_levels):
                 unique_codes_in_batch = torch.unique(codes[:, level]).cpu().tolist()
                 epoch_unique_codes[level].update(unique_codes_in_batch)
             
@@ -128,7 +121,7 @@ def train_sid():
             # Reset unused codes every 100 batches
             if batch_idx > 0 and batch_idx % 100 == 0:
                 with torch.no_grad():
-                    for level in range(num_levels):
+                    for level in range(config.num_levels):
                         codebook_size = model.rqvae.codebook_sizes[level]
                         used_codes = epoch_unique_codes[level]
                         unused_codes = set(range(codebook_size)) - used_codes
@@ -170,7 +163,7 @@ def train_sid():
         writer.add_scalar('Epoch/Cosine_Similarity', avg_cosine, epoch)
         
         # Log unique code usage per level
-        for level in range(num_levels):
+        for level in range(config.num_levels):
             unique_count = len(epoch_unique_codes[level])
             codebook_size = model.rqvae.codebook_sizes[level]
             usage_pct = (unique_count / codebook_size) * 100
@@ -178,14 +171,15 @@ def train_sid():
             writer.add_scalar(f'CodeUsage/Level_{level}_Percentage', usage_pct, epoch)
             print(f"  Level {level}: {unique_count}/{codebook_size} codes used ({usage_pct:.1f}%)")
         
-        print(f"Epoch {epoch+1}/{epochs}, Avg Loss: {avg_loss:.4f} "
+        print(f"Epoch {epoch+1}/{config.epochs}, Avg Loss: {avg_loss:.4f} "
               f"(Recon: {avg_recon:.4f}, Commit: {avg_commit:.4f}, Contrast: {avg_contrast:.4f}, CosSim: {avg_cosine:.4f})")
         
     # Save model
     writer.close()
-    os.makedirs("checkpoints", exist_ok=True)
-    torch.save(model.state_dict(), "checkpoints/sid_model.pth")
-    print("Model saved to checkpoints/sid_model.pth")
+    os.makedirs(config.active_dataset.checkpoint_dir, exist_ok=True)
+    save_path = os.path.join(config.active_dataset.checkpoint_dir, config.sid_model_checkpoint)
+    torch.save(model.state_dict(), save_path)
+    print(f"Model saved to {save_path}")
 
 if __name__ == "__main__":
     train_sid()
