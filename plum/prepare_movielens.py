@@ -43,35 +43,18 @@ def prepare_data():
     # Create text for embedding: "Title. Genres"
     movies_df["Text"] = movies_df["Title"] + ". " + movies_df["Genres"].str.replace("|", ", ")
     
-    # Generate Embeddings using TinyBERT (128 dim)
-    print("Generating TinyBERT Embeddings (128 dim)...")
-    from transformers import AutoTokenizer, AutoModel
+    # Generate Embeddings using all-MiniLM-L6-v2 (384 dim)
+    print("Generating all-MiniLM-L6-v2 Embeddings (384 dim)...")
+    from sentence_transformers import SentenceTransformer
     
-    tokenizer = AutoTokenizer.from_pretrained("prajjwal1/bert-tiny")
-    model = AutoModel.from_pretrained("prajjwal1/bert-tiny")
+    model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
     
     texts = movies_df["Text"].tolist()
-    embeddings_list = []
     
     # Process in batches to avoid OOM
     batch_size = 64
-    for i in range(0, len(texts), batch_size):
-        batch_texts = texts[i:i+batch_size]
-        inputs = tokenizer(batch_texts, padding=True, truncation=True, return_tensors="pt", max_length=128)
-        
-        with torch.no_grad():
-            outputs = model(**inputs)
-            # Mean pooling
-            attention_mask = inputs['attention_mask']
-            token_embeddings = outputs.last_hidden_state
-            input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-            sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, 1)
-            sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-            batch_embeddings = sum_embeddings / sum_mask
-            
-            embeddings_list.append(batch_embeddings)
-            
-    embeddings = torch.cat(embeddings_list, dim=0)
+    print(f"Processing {len(texts)} texts in batches of {batch_size}...")
+    embeddings = model.encode(texts, batch_size=batch_size, show_progress_bar=True, convert_to_tensor=True)
     
     # L2 normalize embeddings
     embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=-1)

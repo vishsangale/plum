@@ -49,7 +49,7 @@ class PLUMConfig:
     datasets: Dict[str, DatasetConfig] = field(default_factory=lambda: {
         "movielens-1m": DatasetConfig(
             name="movielens-1m",
-            input_dims=[128],
+            input_dims=[384],
             embeddings_path="plum/data/movielens-1m/movie_embeddings.pt",
             user_sequences_path="plum/data/movielens-1m/user_sequences.pt",
             movie_sids_json_path="plum/data/movielens-1m/movie_sids.json",
@@ -61,7 +61,7 @@ class PLUMConfig:
         ),
         "movielens-10m": DatasetConfig(
             name="movielens-10m",
-            input_dims=[128],
+            input_dims=[384],
             embeddings_path="plum/data/movielens-10m/movie_embeddings.pt",
             user_sequences_path="plum/data/movielens-10m/user_sequences.pt",
             movie_sids_json_path="plum/data/movielens-10m/movie_sids.json",
