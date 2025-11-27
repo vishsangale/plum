@@ -37,6 +37,10 @@ class ModelConfig:
     recon_weight: float = 500.0
     contrastive_weight: float = 1.0
     level_dropout_prob: float = 0.0
+    enable_dead_code_revival: bool = True  # Enable/disable dead code revival during training
+    enable_progressive_masking: bool = True  # Enable/disable progressive masking (random depth r during training)
+
+
 
 @dataclass
 class PLUMConfig:
@@ -102,7 +106,7 @@ class PLUMConfig:
             commitment_beta=0.5,
             recon_weight=500.0,
             contrastive_weight=1.0,
-            level_dropout_prob=0.0 # Disabled
+            level_dropout_prob=0.0,  # Disabled
         ),
         "movielens-10m": ModelConfig(
             name="movielens-10m",

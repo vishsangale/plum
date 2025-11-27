@@ -61,7 +61,8 @@ def train_sid():
                 reconstructions, z_q, codes, commitment_loss = model(
                     anchor_embeddings, 
                     commitment_beta=config.active_model_config.commitment_beta,
-                    dropout_prob=config.active_model_config.level_dropout_prob
+                    dropout_prob=config.active_model_config.level_dropout_prob,
+                    enable_progressive_masking=config.active_model_config.enable_progressive_masking
                 )
                 
                 # Track unique codes per level
@@ -93,7 +94,7 @@ def train_sid():
                                  for emb, recon in zip(anchor_embeddings, reconstructions)]) / len(anchor_embeddings)
                 
                 # Forward pass for positive (for contrastive loss)
-                _, z_q_pos, _, _ = model(positive_embeddings)
+                _, z_q_pos, _, _ = model(positive_embeddings, enable_progressive_masking=config.active_model_config.enable_progressive_masking)
                 
                 # Contrastive loss
                 contrastive_loss = criterion(z_q, z_q_pos)
@@ -126,7 +127,7 @@ def train_sid():
                 global_step += 1
                 
                 # Reset unused codes every 1000 batches (increased from 100 to avoid killing valid codes early in epoch)
-                if batch_idx > 0 and batch_idx % 1000 == 0:
+                if config.active_model_config.enable_dead_code_revival and batch_idx > 0 and batch_idx % 1000 == 0:
                     with torch.no_grad():
                         for level in range(config.active_model_config.num_levels):
                             codebook_size = model.rqvae.codebook_sizes[level]
@@ -138,7 +139,7 @@ def train_sid():
                             if len(unused_codes) > 0:
                                 # Reset unused codes to random embeddings from current batch
                                 # Get some random embeddings from the current batch
-                                batch_embeddings = anchor_embeddings[0]  # (batch_size, 128)
+                                batch_embeddings = anchor_embeddings[0]  # (batch_size, 384)
                                 
                                 # For each unused code, assign a random embedding from the batch
                                 revived_indices = []
@@ -156,6 +157,7 @@ def train_sid():
                                 
                                 if batch_idx % 500 == 0:  # Print less frequently
                                     print(f"  Reset {len(revived_indices)} unused codes at level {level}")
+
                 
                 # Print every 100 batches
                 if batch_idx % 100 == 0:

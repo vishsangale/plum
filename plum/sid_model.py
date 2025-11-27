@@ -78,11 +78,12 @@ class RQVAE(nn.Module):
             # We use an Embedding layer for this
             self.codebooks.append(nn.Embedding(size, input_dim))
             
-    def forward(self, z: torch.Tensor, training: bool = True, commitment_beta: float = 0.25, dropout_prob: float = 0.0):
+    def forward(self, z: torch.Tensor, training: bool = True, commitment_beta: float = 0.25, dropout_prob: float = 0.0, enable_progressive_masking: bool = True):
         """
         Args:
             z: Input tensor of shape (batch_size, input_dim)
             training: Whether in training mode (for progressive masking)
+            enable_progressive_masking: Whether to apply progressive masking (random depth r)
             
         Returns:
             z_q: Quantized vector (sum of codes)
@@ -96,10 +97,11 @@ class RQVAE(nn.Module):
         commitment_loss = 0.0
         
         # Progressive Masking: Select a random depth r in [1, L]
-        if training:
+        if training and enable_progressive_masking:
             r = torch.randint(1, self.num_levels + 1, (1,)).item()
         else:
             r = self.num_levels
+
             
         for l in range(self.num_levels):
             # If we are beyond the random depth r, we stop accumulating z_q
@@ -183,12 +185,13 @@ class PLUM_SID(nn.Module):
             ) for dim in input_dims
         ])
         
-    def forward(self, inputs: list[torch.Tensor], training: bool = True, commitment_beta: float = 0.25, dropout_prob: float = 0.0):
+    def forward(self, inputs: list[torch.Tensor], training: bool = True, commitment_beta: float = 0.25, dropout_prob: float = 0.0, enable_progressive_masking: bool = True):
         # 1. Encode and Fuse
         z = self.encoder(inputs)
         
         # 2. Quantize
-        z_q, codes, commitment_loss = self.rqvae(z, training=training, commitment_beta=commitment_beta, dropout_prob=dropout_prob)
+        z_q, codes, commitment_loss = self.rqvae(z, training=training, commitment_beta=commitment_beta, dropout_prob=dropout_prob, enable_progressive_masking=enable_progressive_masking)
+
         
         # 3. Reconstruct
         reconstructions = []
