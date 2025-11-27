@@ -45,7 +45,7 @@ class PLUMConfig:
     """
     
     # Datasets
-    dataset_name: str = "movielens-10m"
+    dataset_name: str = "movielens-1m"
     datasets: Dict[str, DatasetConfig] = field(default_factory=lambda: {
         "movielens-1m": DatasetConfig(
             name="movielens-1m",
@@ -83,7 +83,7 @@ class PLUMConfig:
             base_codebook_size=512,
             batch_size=128,
             learning_rate=1e-3,
-            epochs=5,
+            epochs=3,
             contrastive_temperature=0.07,
             commitment_beta=0.25,
             recon_weight=500.0,
@@ -97,7 +97,7 @@ class PLUMConfig:
             base_codebook_size=64, # Set to 64 (Levels: 64, 32, 16) -> Capacity ~32k
             batch_size=128,
             learning_rate=1e-3,
-            epochs=5,
+            epochs=3,
             contrastive_temperature=0.07,
             commitment_beta=0.5,
             recon_weight=500.0,

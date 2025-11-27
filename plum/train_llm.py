@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from functools import partial
 from torch.utils.data import DataLoader, Dataset
 from plum.llm_model import PLUM_LLM
 from plum.config import PLUMConfig
@@ -27,11 +28,9 @@ class MovieLensLLMDataset(Dataset):
             seq = seq[-self.max_len:]
         return torch.tensor(seq, dtype=torch.long)
 
-def collate_fn(batch):
-    # Pad sequences to max length in batch
+def collate_fn(batch, pad_token_id: int):
+    # Pad sequences to max length in batch using the tokenizer's pad id
     max_len = max(len(seq) for seq in batch)
-    # GPT-2 pad token (usually EOS)
-    pad_token_id = 50256 
     
     padded_batch = torch.full((len(batch), max_len), pad_token_id, dtype=torch.long)
     attention_masks = torch.zeros(len(batch), max_len, dtype=torch.long)
@@ -66,7 +65,13 @@ def train_llm():
         raise FileNotFoundError(f"Dataset not found at {dataset_path}")
         
     dataset = MovieLensLLMDataset(dataset_path)
-    dataloader = DataLoader(dataset, batch_size=config.active_model_config.batch_size, shuffle=True, collate_fn=collate_fn)
+    pad_token_id = plum_model.tokenizer.pad_token_id
+    dataloader = DataLoader(
+        dataset,
+        batch_size=config.active_model_config.batch_size,
+        shuffle=True,
+        collate_fn=partial(collate_fn, pad_token_id=pad_token_id)
+    )
     
     optimizer = optim.AdamW(plum_model.parameters(), lr=config.active_model_config.learning_rate)
     

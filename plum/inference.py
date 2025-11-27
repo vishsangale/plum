@@ -53,17 +53,23 @@ def load_mappings(config):
 def recommend_next_movie(history_movie_ids, sid_model, llm_model, movie_sids, sid_to_movies, device, config):
     # 1. Convert History to SID Tokens
     history_tokens = []
+    skipped_ids = []
     
     for mid in history_movie_ids:
         sid_str = movie_sids.get(str(mid))
         if not sid_str:
+            skipped_ids.append(mid)
             continue
             
         codes = [int(c) for c in sid_str.split('-')]
         for l, code in enumerate(codes):
             tid = llm_model.get_sid_token_id(l, code)
             history_tokens.append(tid)
-            
+
+    if len(history_tokens) == 0:
+        missing = f" Missing SIDs for: {skipped_ids}" if skipped_ids else ""
+        raise ValueError(f"Cannot run inference: no SID tokens could be built from the provided history.{missing}")
+
     input_ids = torch.tensor([history_tokens]).to(device)
     
     # 2. Generate Next SID (3 tokens)
