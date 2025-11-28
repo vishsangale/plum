@@ -39,7 +39,7 @@ class ModelConfig:
     level_dropout_prob: float = 0.0
     enable_dead_code_revival: bool = True  # Enable/disable dead code revival during training
     enable_progressive_masking: bool = True  # Enable/disable progressive masking (random depth r during training)
-
+    kmeans_init: bool = True  # Enable/disable K-means initialization for codebooks
 
 
 @dataclass
@@ -101,12 +101,13 @@ class PLUMConfig:
             base_codebook_size=64, # Set to 64 (Levels: 64, 32, 16) -> Capacity ~32k
             batch_size=128,
             learning_rate=1e-3,
-            epochs=3,
+            epochs=5,  # Increased to 5 to see if L0 usage improves
             contrastive_temperature=0.07,
-            commitment_beta=0.5,
-            recon_weight=500.0,
+            commitment_beta=1.0,  # Optimal value found after tuning (vs 0.5 and 0.25)
+            recon_weight=500.0,  # Phase 2: Reverted to 500.0 (Phase 1 failed)
             contrastive_weight=1.0,
-            level_dropout_prob=0.0,  # Disabled
+            level_dropout_prob=0.0,
+            kmeans_init=True,
         ),
         "movielens-10m": ModelConfig(
             name="movielens-10m",

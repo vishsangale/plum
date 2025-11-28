@@ -19,11 +19,33 @@ def train_sid():
     dataset = PLUMSIDDataset(config.active_dataset)
     dataloader = DataLoader(dataset, batch_size=config.active_model_config.batch_size, shuffle=True)
     
-    model = PLUM_SID(config.active_dataset.input_dims, config.active_model_config.latent_dim, config.active_model_config.output_dim, config.active_model_config.num_levels, config.active_model_config.base_codebook_size)
+    model = PLUM_SID(
+        config.active_dataset.input_dims, 
+        config.active_model_config.latent_dim, 
+        config.active_model_config.output_dim, 
+        config.active_model_config.num_levels, 
+        config.active_model_config.base_codebook_size,
+        kmeans_init=config.active_model_config.kmeans_init
+    )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     
     optimizer = torch.optim.Adam(model.parameters(), lr=config.active_model_config.learning_rate)
+    
+    # K-means Initialization (if enabled)
+    # We need to run one forward pass with a batch to initialize
+    if config.active_model_config.kmeans_init:
+        print("Running K-means initialization on first batch...")
+        # Get one batch
+        first_batch = next(iter(dataloader))
+        # first_batch is (anchor_embeddings, positive_embeddings)
+        # anchor_embeddings is a list of tensors [tensor(batch, 384)]
+        anchor_embeddings = first_batch[0][0].to(device)
+        
+        # Run encoder to get z
+        with torch.no_grad():
+            z = model.encoder([anchor_embeddings])
+            model.rqvae.init_codebook(z)
     criterion = ContrastiveLoss(temperature=config.active_model_config.contrastive_temperature)
     print(f"Contrastive Loss Temperature: {criterion.temperature}")
     
@@ -148,8 +170,8 @@ def train_sid():
                                     # Encode the embedding to get the latent representation
                                     z = model.encoder([batch_embeddings[random_emb_idx:random_emb_idx+1]])
                                     # Assign to codebook
-                                    model.rqvae.codebooks[level].weight[unused_idx] = z[0]
-                                    revived_indices.append(unused_idx)
+                                    # model.rqvae.codebooks[level].weight[unused_idx] = z[0]
+                                    # revived_indices.append(unused_idx)
                                 
                                 # Mark revived codes as used in this epoch so they aren't immediately reset again
                                 epoch_unique_codes[level].update(revived_indices)

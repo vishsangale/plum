@@ -58,10 +58,12 @@ class RQVAE(nn.Module):
     1. Multi-Resolution Codebooks (Section 2.1.2)
     2. Progressive Masking (Section 2.1.2)
     """
-    def __init__(self, input_dim: int, num_levels: int = 4, base_codebook_size: int = 2048):
+    def __init__(self, input_dim: int, num_levels: int = 4, base_codebook_size: int = 2048, kmeans_init: bool = False):
         super().__init__()
         self.num_levels = num_levels
         self.input_dim = input_dim
+        self.kmeans_init = kmeans_init
+        self.inited = False
         
         # Multi-resolution codebooks
         # Level 1: 2048, Level 2: 1024, Level 3: 512, etc.
@@ -77,6 +79,75 @@ class RQVAE(nn.Module):
             # Each codebook maps indices to vectors of dimension input_dim
             # We use an Embedding layer for this
             self.codebooks.append(nn.Embedding(size, input_dim))
+            
+    def init_codebook(self, z: torch.Tensor):
+        """
+        Initialize codebooks using K-means clustering on the first batch.
+        Args:
+            z: Input tensor (batch_size, input_dim)
+        """
+        if self.inited or not self.kmeans_init:
+            return
+            
+        print("Initializing codebooks with K-means...")
+        with torch.no_grad():
+            residual = z.clone()
+            for l in range(self.num_levels):
+                codebook = self.codebooks[l]
+                n_codes = codebook.num_embeddings
+                
+                # Simple K-means implementation
+                # 1. Select random points as initial centroids
+                # If batch size < n_codes, we need to handle it (repeat or noise)
+                if residual.shape[0] < n_codes:
+                    # Repeat data with noise to fill codebook
+                    repeats = (n_codes // residual.shape[0]) + 1
+                    data = residual.repeat(repeats, 1)[:n_codes]
+                    data = data + torch.randn_like(data) * 0.01
+                else:
+                    # Random selection
+                    perm = torch.randperm(residual.shape[0])
+                    data = residual[perm[:n_codes]]
+                
+                # Assign to codebook weights
+                codebook.weight.data.copy_(data)
+                
+                # Run a few iterations of K-means (e.g., 10)
+                for _ in range(10):
+                    # Distance
+                    d = torch.sum(residual ** 2, dim=1, keepdim=True) + \
+                        torch.sum(codebook.weight ** 2, dim=1) - \
+                        2 * torch.matmul(residual, codebook.weight.t())
+                    
+                    # Assign
+                    indices = torch.argmin(d, dim=1)
+                    
+                    # Update
+                    one_hot = F.one_hot(indices, n_codes).float()
+                    cluster_size = one_hot.sum(0)
+                    embed_sum = torch.matmul(one_hot.t(), residual)
+                    
+                    # Avoid division by zero
+                    mask = cluster_size > 0
+                    codebook.weight.data[mask] = embed_sum[mask] / cluster_size[mask].unsqueeze(1)
+                    
+                    # Re-init empty clusters
+                    if (~mask).any():
+                        n_empty = (~mask).sum().item()
+                        # Pick random points from residual to fill empty clusters
+                        rand_idx = torch.randint(0, residual.shape[0], (n_empty,))
+                        codebook.weight.data[~mask] = residual[rand_idx]
+                
+                # Quantize residual for next level
+                d = torch.sum(residual ** 2, dim=1, keepdim=True) + \
+                    torch.sum(codebook.weight ** 2, dim=1) - \
+                    2 * torch.matmul(residual, codebook.weight.t())
+                min_indices = torch.argmin(d, dim=1)
+                z_e = codebook(min_indices)
+                residual = residual - z_e
+                
+        self.inited = True
+        print("K-means initialization complete.")
             
     def forward(self, z: torch.Tensor, training: bool = True, commitment_beta: float = 0.25, dropout_prob: float = 0.0, enable_progressive_masking: bool = True):
         """
@@ -171,10 +242,10 @@ class PLUM_SID(nn.Module):
     Main PLUM Semantic ID Model.
     Combines MultiModalEncoder, RQVAE, and Decoders.
     """
-    def __init__(self, input_dims: list[int], latent_dim: int, output_dim: int, num_levels: int = 4, base_codebook_size: int = 2048):
+    def __init__(self, input_dims: list[int], latent_dim: int, output_dim: int, num_levels: int = 4, base_codebook_size: int = 2048, kmeans_init: bool = False):
         super().__init__()
         self.encoder = MultiModalEncoder(input_dims, latent_dim, output_dim)
-        self.rqvae = RQVAE(output_dim, num_levels, base_codebook_size)
+        self.rqvae = RQVAE(output_dim, num_levels, base_codebook_size, kmeans_init=kmeans_init)
         
         # Decoders to reconstruct original embeddings from quantized vector z_q
         self.decoders = nn.ModuleList([
