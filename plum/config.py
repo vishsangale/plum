@@ -16,6 +16,7 @@ class DatasetConfig:
     checkpoint_dir: str
     raw_data_dir: str
     model_config_name: str = "default"
+    llm_config_name: str = "default"
 
 @dataclass
 class ModelConfig:
@@ -43,6 +44,19 @@ class ModelConfig:
 
 
 @dataclass
+class LLMConfig:
+    """
+    Configuration for the LLM training.
+    """
+    name: str
+    model_name: str
+    batch_size: int
+    learning_rate: float
+    epochs: int
+    max_seq_len: int = 1024
+
+
+@dataclass
 class PLUMConfig:
     """
     Configuration for PLUM SID model and training.
@@ -61,7 +75,8 @@ class PLUMConfig:
             llm_dataset_path="plum/data/movielens-1m/llm_dataset.pt",
             checkpoint_dir="plum/data/movielens-1m/checkpoints",
             raw_data_dir="plum/data/movielens-1m/raw",
-            model_config_name="movielens-1m"
+            model_config_name="movielens-1m",
+            llm_config_name="movielens-1m"
         ),
         "movielens-10m": DatasetConfig(
             name="movielens-10m",
@@ -73,11 +88,12 @@ class PLUMConfig:
             llm_dataset_path="plum/data/movielens-10m/llm_dataset.pt",
             checkpoint_dir="plum/data/movielens-10m/checkpoints",
             raw_data_dir="plum/data/movielens-10m/raw",
-            model_config_name="movielens-10m"
+            model_config_name="movielens-10m",
+            llm_config_name="movielens-10m"
         )
     })
     
-    # Model Configs
+    # Model Configs (SID)
     model_configs: Dict[str, ModelConfig] = field(default_factory=lambda: {
         "default": ModelConfig(
             name="default",
@@ -125,6 +141,32 @@ class PLUMConfig:
         )
     })
     
+    # LLM Configs
+    llm_configs: Dict[str, LLMConfig] = field(default_factory=lambda: {
+        "default": LLMConfig(
+            name="default",
+            model_name="distilgpt2",
+            batch_size=32,
+            learning_rate=5e-5,
+            epochs=3
+        ),
+        "movielens-1m": LLMConfig(
+            name="movielens-1m",
+            model_name="distilgpt2",
+            batch_size=32, # Optimized for CPU verification
+            learning_rate=5e-5,
+            epochs=1, # Reduced for CPU verification
+            max_seq_len=256
+        ),
+        "movielens-10m": LLMConfig(
+            name="movielens-10m",
+            model_name="distilgpt2",
+            batch_size=64,
+            learning_rate=5e-5,
+            epochs=5
+        )
+    })
+    
     # Global Paths
     # checkpoint_dir removed, use active_dataset.checkpoint_dir
     sid_model_checkpoint: str = "sid_model.pth" # Relative to checkpoint_dir
@@ -142,6 +184,13 @@ class PLUMConfig:
         if model_name not in self.model_configs:
             raise ValueError(f"Model config {model_name} not found in registry.")
         return self.model_configs[model_name]
+        
+    @property
+    def active_llm_config(self) -> LLMConfig:
+        llm_config_name = self.active_dataset.llm_config_name
+        if llm_config_name not in self.llm_configs:
+            raise ValueError(f"LLM config {llm_config_name} not found in registry.")
+        return self.llm_configs[llm_config_name]
     
     def __post_init__(self):
         pass

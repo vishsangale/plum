@@ -11,10 +11,9 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 
 class MovieLensLLMDataset(Dataset):
-    def __init__(self, data_path: str, max_len: int = 1024):
+    def __init__(self, data_path: str, max_len: int = 256):
         self.data = torch.load(data_path)
-        # Use subset for faster training on CPU
-        self.data = self.data[:500] 
+        # self.data = self.data[:500] # Removed debug limit
         self.max_len = max_len
         print(f"Loaded {len(self.data)} sequences for LLM training (Subset).")
         
@@ -52,10 +51,15 @@ def train_llm():
     
     # Initialize Model
     # Using distilgpt2 for faster training
-    plum_model = PLUM_LLM(model_name='distilgpt2', num_levels=config.active_model_config.num_levels, base_codebook_size=config.active_model_config.base_codebook_size)
+    plum_model = PLUM_LLM(model_name=config.active_llm_config.model_name, num_levels=config.active_model_config.num_levels, base_codebook_size=config.active_model_config.base_codebook_size)
     
     # Move to device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
     plum_model.to(device)
     plum_model.train()
     
@@ -64,23 +68,23 @@ def train_llm():
     if not os.path.exists(dataset_path):
         raise FileNotFoundError(f"Dataset not found at {dataset_path}")
         
-    dataset = MovieLensLLMDataset(dataset_path)
+    dataset = MovieLensLLMDataset(dataset_path, max_len=config.active_llm_config.max_seq_len)
     pad_token_id = plum_model.tokenizer.pad_token_id
     dataloader = DataLoader(
         dataset,
-        batch_size=config.active_model_config.batch_size,
+        batch_size=config.active_llm_config.batch_size,
         shuffle=True,
         collate_fn=partial(collate_fn, pad_token_id=pad_token_id)
     )
     
-    optimizer = optim.AdamW(plum_model.parameters(), lr=config.active_model_config.learning_rate)
+    optimizer = optim.AdamW(plum_model.parameters(), lr=config.active_llm_config.learning_rate)
     
     print(f"Starting LLM Training (distilgpt2) on {device}...")
     
     global_step = 0
-    for epoch in range(config.active_model_config.epochs):
+    for epoch in range(config.active_llm_config.epochs):
         total_loss = 0
-        progress_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{config.active_model_config.epochs}")
+        progress_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{config.active_llm_config.epochs}")
         
         for batch_idx, (input_ids, attention_mask) in enumerate(progress_bar):
             input_ids = input_ids.to(device)
@@ -102,7 +106,7 @@ def train_llm():
             global_step += 1
             
         avg_loss = total_loss / len(dataloader)
-        print(f"Epoch {epoch+1}/{config.active_model_config.epochs}, Avg Loss: {avg_loss:.4f}")
+        print(f"Epoch {epoch+1}/{config.active_llm_config.epochs}, Avg Loss: {avg_loss:.4f}")
         writer.add_scalar('LLM/Epoch_Loss', avg_loss, epoch)
         
         # Save checkpoint every epoch
