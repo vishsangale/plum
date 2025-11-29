@@ -22,7 +22,7 @@ def generate_sids():
     
     # Load Model
     print("Loading model...")
-    model = PLUM_SID(config.active_dataset.input_dims, config.active_model_config.latent_dim, config.active_model_config.output_dim, config.active_model_config.num_levels, config.active_model_config.base_codebook_size)
+    model = PLUM_SID(config.active_dataset.input_dims, config.active_model_config.latent_dim, config.active_model_config.output_dim, config.active_model_config.codebook_sizes)
     checkpoint_path = os.path.join(config.active_dataset.checkpoint_dir, config.sid_model_checkpoint)
     
     if not os.path.exists(checkpoint_path):

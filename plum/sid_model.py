@@ -58,24 +58,18 @@ class RQVAE(nn.Module):
     1. Multi-Resolution Codebooks (Section 2.1.2)
     2. Progressive Masking (Section 2.1.2)
     """
-    def __init__(self, input_dim: int, num_levels: int = 4, base_codebook_size: int = 2048, kmeans_init: bool = False):
+    def __init__(self, input_dim: int, codebook_sizes: list[int], kmeans_init: bool = False):
         super().__init__()
-        self.num_levels = num_levels
+        self.codebook_sizes = codebook_sizes
+        self.num_levels = len(codebook_sizes)
         self.input_dim = input_dim
         self.kmeans_init = kmeans_init
         self.inited = False
         
         # Multi-resolution codebooks
-        # Level 1: 2048, Level 2: 1024, Level 3: 512, etc.
         self.codebooks = nn.ModuleList()
-        self.codebook_sizes = []
         
-        for l in range(num_levels):
-            # Formula: 2048 / 2^(l) -> Note: Paper says 2048 / 2^(level-1) where level starts at 1
-            # So for l=0 (level 1), size = 2048 / 2^0 = 2048
-            size = int(base_codebook_size / (2 ** l))
-            self.codebook_sizes.append(size)
-            
+        for size in self.codebook_sizes:
             # Each codebook maps indices to vectors of dimension input_dim
             # We use an Embedding layer for this
             self.codebooks.append(nn.Embedding(size, input_dim))
@@ -209,9 +203,10 @@ class RQVAE(nn.Module):
             # Term 2: Codebook update -> ||sg[residual] - z_e||^2
             
             # beta = 0.25  # Restored for codebook stability
-            term1 = commitment_beta * torch.mean((residual - z_e.detach()) ** 2)
-            term2 = torch.mean((residual.detach() - z_e) ** 2)
-            commitment_loss += term1 + term2
+            if l < r:
+                term1 = commitment_beta * torch.mean((residual - z_e.detach()) ** 2)
+                term2 = torch.mean((residual.detach() - z_e) ** 2)
+                commitment_loss += term1 + term2
             
             # Level Dropout Logic
             if training and l == 0 and dropout_prob > 0 and torch.rand(1).item() < dropout_prob:
@@ -242,10 +237,10 @@ class PLUM_SID(nn.Module):
     Main PLUM Semantic ID Model.
     Combines MultiModalEncoder, RQVAE, and Decoders.
     """
-    def __init__(self, input_dims: list[int], latent_dim: int, output_dim: int, num_levels: int = 4, base_codebook_size: int = 2048, kmeans_init: bool = False):
+    def __init__(self, input_dims: list[int], latent_dim: int, output_dim: int, codebook_sizes: list[int], kmeans_init: bool = False):
         super().__init__()
         self.encoder = MultiModalEncoder(input_dims, latent_dim, output_dim)
-        self.rqvae = RQVAE(output_dim, num_levels, base_codebook_size, kmeans_init=kmeans_init)
+        self.rqvae = RQVAE(output_dim, codebook_sizes, kmeans_init=kmeans_init)
         
         # Decoders to reconstruct original embeddings from quantized vector z_q
         self.decoders = nn.ModuleList([

@@ -26,8 +26,7 @@ class ModelConfig:
     name: str
     latent_dim: int
     output_dim: int
-    num_levels: int
-    base_codebook_size: int
+    codebook_sizes: List[int]
     
     # Training
     batch_size: int
@@ -41,6 +40,10 @@ class ModelConfig:
     enable_dead_code_revival: bool = True  # Enable/disable dead code revival during training
     enable_progressive_masking: bool = True  # Enable/disable progressive masking (random depth r during training)
     kmeans_init: bool = True  # Enable/disable K-means initialization for codebooks
+    
+    @property
+    def num_levels(self) -> int:
+        return len(self.codebook_sizes)
 
 
 @dataclass
@@ -99,8 +102,7 @@ class PLUMConfig:
             name="default",
             latent_dim=256,
             output_dim=256,
-            num_levels=3,
-            base_codebook_size=512,
+            codebook_sizes=[512, 256, 128],
             batch_size=128,
             learning_rate=1e-3,
             epochs=3,
@@ -113,8 +115,7 @@ class PLUMConfig:
             name="movielens-1m",
             latent_dim=256,
             output_dim=256,
-            num_levels=3,
-            base_codebook_size=64, # Set to 64 (Levels: 64, 32, 16) -> Capacity ~32k
+            codebook_sizes=[64, 64, 64], # Constant codebook size to avoid bottleneck
             batch_size=128,
             learning_rate=1e-3,
             epochs=5,  # Increased to 5 to see if L0 usage improves
@@ -129,8 +130,7 @@ class PLUMConfig:
             name="movielens-10m",
             latent_dim=256,
             output_dim=256,
-            num_levels=3,
-            base_codebook_size=512,
+            codebook_sizes=[512, 256, 128],
             batch_size=256, # Larger batch size for larger dataset
             learning_rate=1e-3,
             epochs=10, # More epochs for larger dataset

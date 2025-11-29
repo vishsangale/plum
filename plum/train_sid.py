@@ -23,8 +23,7 @@ def train_sid():
         config.active_dataset.input_dims, 
         config.active_model_config.latent_dim, 
         config.active_model_config.output_dim, 
-        config.active_model_config.num_levels, 
-        config.active_model_config.base_codebook_size,
+        config.active_model_config.codebook_sizes,
         kmeans_init=config.active_model_config.kmeans_init
     )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -170,8 +169,8 @@ def train_sid():
                                     # Encode the embedding to get the latent representation
                                     z = model.encoder([batch_embeddings[random_emb_idx:random_emb_idx+1]])
                                     # Assign to codebook
-                                    # model.rqvae.codebooks[level].weight[unused_idx] = z[0]
-                                    # revived_indices.append(unused_idx)
+                                    model.rqvae.codebooks[level].weight[unused_idx] = z[0]
+                                    revived_indices.append(unused_idx)
                                 
                                 # Mark revived codes as used in this epoch so they aren't immediately reset again
                                 epoch_unique_codes[level].update(revived_indices)
