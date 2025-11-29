@@ -34,8 +34,18 @@ def prepare_llm_data():
         token_seq = []
         for movie_idx in seq:
             total_movies += 1
-            sid_str = movie_sids.get(str(movie_idx))
+            sid_data = movie_sids.get(str(movie_idx))
             
+            if not sid_data:
+                skipped_movies += 1
+                continue
+            
+            # Handle both old (string) and new (dict) formats
+            if isinstance(sid_data, dict):
+                sid_str = sid_data.get("sid")
+            else:
+                sid_str = sid_data
+                
             if not sid_str:
                 skipped_movies += 1
                 continue

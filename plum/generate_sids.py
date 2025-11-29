@@ -57,13 +57,43 @@ def generate_sids():
             
     all_codes = torch.cat(all_codes, dim=0) # (Num_Movies, num_levels)
     
-    # Convert to string format
+    # Convert to string format and enrich with metadata
     sid_map = {}
     unique_sids = set()
+    
+    # Load Metadata if available (re-load here or move loading up)
+    # Ideally move metadata loading before this loop.
+    # For now, let's just do a quick load here to avoid major refactor
+    import pandas as pd
+    id_map_path = os.path.join(os.path.dirname(config.active_dataset.embeddings_path), "movie_id_map.pt")
+    idx_to_movie_id = {}
+    movie_meta = {}
+    if os.path.exists(id_map_path):
+        movie_id_to_idx = torch.load(id_map_path)
+        idx_to_movie_id = {i: mid for mid, i in movie_id_to_idx.items()}
+        raw_dir = config.active_dataset.raw_data_dir
+        movies_df = pd.read_csv(
+            os.path.join(raw_dir, "ml-1m/movies.dat"), 
+            sep="::", 
+            engine="python", 
+            names=["MovieID", "Title", "Genres"],
+            encoding="latin-1"
+        )
+        movie_meta = movies_df.set_index("MovieID")[["Title", "Genres"]].to_dict('index')
+
     for idx, codes in enumerate(all_codes):
         # Convert tensor codes to string "c1-c2-c3"
         sid_str = "-".join([str(c.item()) for c in codes])
-        sid_map[idx] = sid_str
+        
+        # Get metadata
+        mid = idx_to_movie_id.get(idx)
+        meta = movie_meta.get(mid, {}) if mid else {}
+        
+        sid_map[idx] = {
+            "sid": sid_str,
+            "title": meta.get("Title", "Unknown"),
+            "genres": meta.get("Genres", "Unknown")
+        }
         unique_sids.add(sid_str)
         
     # Uniqueness Check
@@ -87,8 +117,9 @@ def generate_sids():
     
     # Print some examples
     print("\nExample SIDs:")
-    for i in range(5):
-        print(f"Movie {i}: {sid_map[i]}")
+    for i in range(10): # Increased to 10 examples
+        entry = sid_map[i]
+        print(f"Movie {i}: {entry['sid']} | {entry['title']} | {entry['genres']}")
 
 if __name__ == "__main__":
     generate_sids()
