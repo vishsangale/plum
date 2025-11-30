@@ -65,12 +65,14 @@ def train_sid():
             total_cosine_sim = 0
             epoch_unique_codes = [set() for _ in range(config.active_model_config.num_levels)]
             model.train()
-            # Constant contrastive weight from config
-            contrastive_weight = config.active_model_config.contrastive_weight
-    
+            # Ablation Flags
+            contrastive_weight = config.active_model_config.contrastive_weight if config.ablation.enable_contrastive_loss else 0.0
+            enable_progressive_masking = config.ablation.enable_progressive_masking
+            enable_dead_code_revival = config.ablation.enable_dead_code_revival
             
             print(f"\n{'='*60}")
-            print(f"Epoch {epoch+1}/{config.active_model_config.epochs} - Contrastive Weight: {contrastive_weight}")
+            print(f"Epoch {epoch+1}/{config.active_model_config.epochs}")
+            print(f"Ablations: Contrastive={config.ablation.enable_contrastive_loss}, ProgMask={enable_progressive_masking}, DeadCode={enable_dead_code_revival}")
             print(f"{'='*60}\n")
             
             for batch_idx, (anchor_embeddings, positive_embeddings) in enumerate(dataloader):
@@ -83,7 +85,7 @@ def train_sid():
                     anchor_embeddings, 
                     commitment_beta=config.active_model_config.commitment_beta,
                     dropout_prob=config.active_model_config.level_dropout_prob,
-                    enable_progressive_masking=config.active_model_config.enable_progressive_masking
+                    enable_progressive_masking=enable_progressive_masking
                 )
                 
                 # Track unique codes per level
@@ -115,10 +117,12 @@ def train_sid():
                                  for emb, recon in zip(anchor_embeddings, reconstructions)]) / len(anchor_embeddings)
                 
                 # Forward pass for positive (for contrastive loss)
-                _, z_q_pos, _, _ = model(positive_embeddings, enable_progressive_masking=config.active_model_config.enable_progressive_masking)
-                
-                # Contrastive loss
-                contrastive_loss = criterion(z_q, z_q_pos)
+                # Only run if contrastive loss is enabled to save compute
+                if config.ablation.enable_contrastive_loss:
+                    _, z_q_pos, _, _ = model(positive_embeddings, enable_progressive_masking=enable_progressive_masking)
+                    contrastive_loss = criterion(z_q, z_q_pos)
+                else:
+                    contrastive_loss = torch.tensor(0.0, device=device)
                 
                 # Total loss with adaptive weights
                 loss = recon_weight * recon_loss + commitment_loss + contrastive_weight * contrastive_loss

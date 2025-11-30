@@ -141,6 +141,23 @@ class PLUMConfig:
         )
     })
     
+    @dataclass
+    class AblationConfig:
+        """
+        Configuration for ablation studies and experimental toggles.
+        """
+        # Training Ablations
+        enable_contrastive_loss: bool = True
+        enable_progressive_masking: bool = True
+        enable_dead_code_revival: bool = True
+        
+        # Data Ablations
+        enable_grounding_task: bool = True # If False, skip generating grounding tasks in prepare_llm_data
+        
+        # Inference Ablations
+        enable_beam_search: bool = True
+        beam_width: int = 5
+
     # LLM Configs
     llm_configs: Dict[str, LLMConfig] = field(default_factory=lambda: {
         "default": LLMConfig(
@@ -166,6 +183,9 @@ class PLUMConfig:
             epochs=5
         )
     })
+    
+    # Ablation Config
+    ablation: AblationConfig = field(default_factory=AblationConfig)
     
     # Global Paths
     # checkpoint_dir removed, use active_dataset.checkpoint_dir

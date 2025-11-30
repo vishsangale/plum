@@ -65,3 +65,34 @@ class PLUMSIDDataset(Dataset):
         emb2 = [self.embeddings[idx2]]
         
         return emb1, emb2
+
+class MovieLensLLMDataset(Dataset):
+    def __init__(self, data_path: str, max_len: int = 256):
+        self.data = torch.load(data_path, weights_only=False)
+        # self.data = self.data[:500] # Removed debug limit
+        self.max_len = max_len
+        print(f"Loaded {len(self.data)} sequences for LLM training (Subset).")
+        
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        seq = self.data[idx]
+        # Truncate if too long (keep recent history)
+        if len(seq) > self.max_len:
+            seq = seq[-self.max_len:]
+        return torch.tensor(seq, dtype=torch.long)
+
+def collate_fn(batch, pad_token_id: int):
+    # Pad sequences to max length in batch using the tokenizer's pad id
+    max_len = max(len(seq) for seq in batch)
+    
+    padded_batch = torch.full((len(batch), max_len), pad_token_id, dtype=torch.long)
+    attention_masks = torch.zeros(len(batch), max_len, dtype=torch.long)
+    
+    for i, seq in enumerate(batch):
+        l = len(seq)
+        padded_batch[i, :l] = seq
+        attention_masks[i, :l] = 1 # 1 for valid tokens, 0 for padding
+        
+    return padded_batch, attention_masks

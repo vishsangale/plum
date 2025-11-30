@@ -75,42 +75,46 @@ def prepare_llm_data():
     # 2. SID Grounding Tasks
     # Format: "<SID> is movie <Title> (<Genres>)"
     # And: "Movie <Title> (<Genres>) has ID <SID>"
-    print("Generating SID Grounding Tasks...")
     grounding_dataset = []
     
-    for movie_idx, data in tqdm(movie_sids.items(), desc="Grounding Tasks"):
-        if not isinstance(data, dict): continue
+    if config.ablation.enable_grounding_task:
+        print("Generating SID Grounding Tasks...")
         
-        sid_str = data.get("sid")
-        title = data.get("title")
-        genres = data.get("genres")
-        
-        if not sid_str or not title: continue
-        
-        codes = [int(c) for c in sid_str.split('-')]
-        sid_tokens = []
-        for level, code in enumerate(codes):
-            tid = plum_model.get_sid_token_id(level, code)
-            if tid is not None:
-                sid_tokens.append(tid)
-        
-        if not sid_tokens: continue
-        
-        # Task A: SID -> Text
-        # "<SID> is movie Title (Genres)"
-        task_a_tokens = []
-        task_a_tokens.extend(sid_tokens)
-        task_a_tokens.extend(tokenizer.encode(f" is movie {title} ({genres})"))
-        grounding_dataset.append(task_a_tokens)
-        
-        # Task B: Text -> SID
-        # "Movie Title (Genres) has ID <SID>"
-        task_b_tokens = []
-        task_b_tokens.extend(tokenizer.encode(f"Movie {title} ({genres}) has ID "))
-        task_b_tokens.extend(sid_tokens)
-        grounding_dataset.append(task_b_tokens)
-        
-    print(f"Generated {len(grounding_dataset)} grounding examples.")
+        for movie_idx, data in tqdm(movie_sids.items(), desc="Grounding Tasks"):
+            if not isinstance(data, dict): continue
+            
+            sid_str = data.get("sid")
+            title = data.get("title")
+            genres = data.get("genres")
+            
+            if not sid_str or not title: continue
+            
+            codes = [int(c) for c in sid_str.split('-')]
+            sid_tokens = []
+            for level, code in enumerate(codes):
+                tid = plum_model.get_sid_token_id(level, code)
+                if tid is not None:
+                    sid_tokens.append(tid)
+            
+            if not sid_tokens: continue
+            
+            # Task A: SID -> Text
+            # "<SID> is movie Title (Genres)"
+            task_a_tokens = []
+            task_a_tokens.extend(sid_tokens)
+            task_a_tokens.extend(tokenizer.encode(f" is movie {title} ({genres})"))
+            grounding_dataset.append(task_a_tokens)
+            
+            # Task B: Text -> SID
+            # "Movie Title (Genres) has ID <SID>"
+            task_b_tokens = []
+            task_b_tokens.extend(tokenizer.encode(f"Movie {title} ({genres}) has ID "))
+            task_b_tokens.extend(sid_tokens)
+            grounding_dataset.append(task_b_tokens)
+            
+        print(f"Generated {len(grounding_dataset)} grounding examples.")
+    else:
+        print("Skipping SID Grounding Tasks (Ablation).")
     
     # Combine datasets
     # We can upsample grounding tasks if needed, but for now just mix them
