@@ -17,7 +17,7 @@ def generate_sids():
     if not os.path.exists(embeddings_path):
         raise FileNotFoundError(f"Embeddings file not found at {embeddings_path}")
         
-    movie_embeddings = torch.load(embeddings_path) # (Num_Movies, 128)
+    movie_embeddings = torch.load(embeddings_path, weights_only=False) # (Num_Movies, 128)
     print(f"Loaded {len(movie_embeddings)} movie embeddings.")
     
     # Load Model
@@ -28,7 +28,7 @@ def generate_sids():
     if not os.path.exists(checkpoint_path):
          raise FileNotFoundError(f"Checkpoint not found at {checkpoint_path}")
          
-    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+    model.load_state_dict(torch.load(checkpoint_path, map_location=device, weights_only=False))
     model.to(device)
     model.eval()
     
@@ -69,7 +69,7 @@ def generate_sids():
     idx_to_movie_id = {}
     movie_meta = {}
     if os.path.exists(id_map_path):
-        movie_id_to_idx = torch.load(id_map_path)
+        movie_id_to_idx = torch.load(id_map_path, weights_only=False)
         idx_to_movie_id = {i: mid for mid, i in movie_id_to_idx.items()}
         raw_dir = config.active_dataset.raw_data_dir
         movies_df = pd.read_csv(

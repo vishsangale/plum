@@ -7,7 +7,7 @@ class PLUM_LLM(nn.Module):
     PLUM Generative Retrieval Model using pre-trained GPT-2.
     Extends the vocabulary with Semantic ID tokens.
     """
-    def __init__(self, model_name: str = 'gpt2', num_levels: int = 3, base_codebook_size: int = 512):
+    def __init__(self, model_name: str = 'gpt2', num_levels: int = 3, codebook_sizes: list = None):
         super().__init__()
         
         # Load pre-trained model and tokenizer
@@ -21,7 +21,13 @@ class PLUM_LLM(nn.Module):
             
         # Calculate SID tokens
         self.num_levels = num_levels
-        self.codebook_sizes = [int(base_codebook_size / (2**l)) for l in range(num_levels)]
+        if codebook_sizes is None:
+             # Default behavior (legacy)
+             base = 512
+             self.codebook_sizes = [int(base / (2**l)) for l in range(num_levels)]
+        else:
+             self.codebook_sizes = codebook_sizes
+             
         self.total_sid_tokens = sum(self.codebook_sizes)
         
         # Add SID tokens to tokenizer

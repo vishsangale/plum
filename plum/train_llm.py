@@ -12,7 +12,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 class MovieLensLLMDataset(Dataset):
     def __init__(self, data_path: str, max_len: int = 256):
-        self.data = torch.load(data_path)
+        self.data = torch.load(data_path, weights_only=False)
         # self.data = self.data[:500] # Removed debug limit
         self.max_len = max_len
         print(f"Loaded {len(self.data)} sequences for LLM training (Subset).")
@@ -51,7 +51,7 @@ def train_llm():
     
     # Initialize Model
     # Using distilgpt2 for faster training
-    plum_model = PLUM_LLM(model_name=config.active_llm_config.model_name, num_levels=config.active_model_config.num_levels, base_codebook_size=config.active_model_config.base_codebook_size)
+    plum_model = PLUM_LLM(model_name=config.active_llm_config.model_name, num_levels=config.active_model_config.num_levels, codebook_sizes=config.active_model_config.codebook_sizes)
     
     # Move to device
     if torch.cuda.is_available():

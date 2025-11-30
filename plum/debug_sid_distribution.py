@@ -24,7 +24,8 @@ def analyze_sid_distribution():
     level_2_codes = []
     full_sids = []
     
-    for sid_str in sids.values():
+    for entry in sids.values():
+        sid_str = entry['sid']
         parts = sid_str.split('-')
         level_0_codes.append(int(parts[0]))
         level_1_codes.append(int(parts[1]))

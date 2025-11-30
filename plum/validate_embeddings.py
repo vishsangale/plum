@@ -14,8 +14,8 @@ def validate_embeddings():
     
     # Load embeddings
     print("Loading embeddings...")
-    embeddings = torch.load(config.active_dataset.embeddings_path)
-    embeddings_np = embeddings.numpy()
+    embeddings = torch.load(config.active_dataset.embeddings_path, weights_only=False)
+    embeddings_np = embeddings.cpu().numpy()
     
     # Load movie metadata
     raw_dir = config.active_dataset.raw_data_dir

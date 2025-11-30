@@ -4,7 +4,7 @@ ml-1m/
 runs/
 venv/
 .vscode/
-
+get-pip.py
 # Ignore Python bytecode caches for the plum package
 plum/__pycache__/
 plum/data/
