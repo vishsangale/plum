@@ -56,7 +56,9 @@ class LLMConfig:
     batch_size: int
     learning_rate: float
     epochs: int
+    epochs: int
     max_seq_len: int = 1024
+    validation_split: float = 0.1
 
 
 @dataclass

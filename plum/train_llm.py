@@ -36,17 +36,27 @@ def train_llm():
     plum_model.to(device)
     plum_model.train()
     
-    # Load Dataset
+    # Load Datasets
     dataset_path = config.active_dataset.llm_dataset_path
     if not os.path.exists(dataset_path):
         raise FileNotFoundError(f"Dataset not found at {dataset_path}")
         
-    dataset = MovieLensLLMDataset(dataset_path, max_len=config.active_llm_config.max_seq_len)
+    train_dataset = MovieLensLLMDataset(dataset_path, max_len=config.active_llm_config.max_seq_len, split='train')
+    val_dataset = MovieLensLLMDataset(dataset_path, max_len=config.active_llm_config.max_seq_len, split='val')
+    
     pad_token_id = plum_model.tokenizer.pad_token_id
-    dataloader = DataLoader(
-        dataset,
+    
+    train_dataloader = DataLoader(
+        train_dataset,
         batch_size=config.active_llm_config.batch_size,
         shuffle=True,
+        collate_fn=partial(collate_fn, pad_token_id=pad_token_id)
+    )
+    
+    val_dataloader = DataLoader(
+        val_dataset,
+        batch_size=config.active_llm_config.batch_size,
+        shuffle=False,
         collate_fn=partial(collate_fn, pad_token_id=pad_token_id)
     )
     
@@ -55,9 +65,13 @@ def train_llm():
     print(f"Starting LLM Training (distilgpt2) on {device}...")
     
     global_step = 0
+    best_val_loss = float('inf')
+    
     for epoch in range(config.active_llm_config.epochs):
+        # --- Training Loop ---
+        plum_model.train()
         total_loss = 0
-        progress_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{config.active_llm_config.epochs}")
+        progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch+1}/{config.active_llm_config.epochs} [Train]")
         
         for batch_idx, (input_ids, attention_mask) in enumerate(progress_bar):
             input_ids = input_ids.to(device)
@@ -75,16 +89,41 @@ def train_llm():
             progress_bar.set_postfix({'loss': loss.item()})
             
             # Log to TensorBoard
-            writer.add_scalar('LLM/Loss', loss.item(), global_step)
+            writer.add_scalar('LLM/Train_Loss', loss.item(), global_step)
             global_step += 1
             
-        avg_loss = total_loss / len(dataloader)
-        print(f"Epoch {epoch+1}/{config.active_llm_config.epochs}, Avg Loss: {avg_loss:.4f}")
-        writer.add_scalar('LLM/Epoch_Loss', avg_loss, epoch)
+        avg_train_loss = total_loss / len(train_dataloader)
+        
+        # --- Validation Loop ---
+        plum_model.eval()
+        total_val_loss = 0
+        with torch.no_grad():
+            for input_ids, attention_mask in tqdm(val_dataloader, desc=f"Epoch {epoch+1}/{config.active_llm_config.epochs} [Val]"):
+                input_ids = input_ids.to(device)
+                attention_mask = attention_mask.to(device)
+                
+                outputs = plum_model(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)
+                total_val_loss += outputs.loss.item()
+                
+        avg_val_loss = total_val_loss / len(val_dataloader)
+        perplexity = torch.exp(torch.tensor(avg_val_loss)).item()
+        
+        print(f"Epoch {epoch+1}: Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}, Val PPL: {perplexity:.2f}")
+        
+        writer.add_scalar('LLM/Epoch_Train_Loss', avg_train_loss, epoch)
+        writer.add_scalar('LLM/Epoch_Val_Loss', avg_val_loss, epoch)
+        writer.add_scalar('LLM/Epoch_Val_Perplexity', perplexity, epoch)
         
         # Save checkpoint every epoch
         os.makedirs(config.active_dataset.checkpoint_dir, exist_ok=True)
         plum_model.save_pretrained(os.path.join(config.active_dataset.checkpoint_dir, f"plum_llm_epoch_{epoch+1}"))
+        
+        # Save best model
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            best_path = os.path.join(config.active_dataset.checkpoint_dir, "plum_llm_best")
+            plum_model.save_pretrained(best_path)
+            print(f"New best model saved to {best_path}")
         
     print("Training complete!")
     final_path = os.path.join(config.active_dataset.checkpoint_dir, config.llm_checkpoint_dir)

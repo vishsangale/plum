@@ -121,12 +121,24 @@ def prepare_llm_data():
     full_dataset = llm_dataset + grounding_dataset
     random.shuffle(full_dataset)
     
-    print(f"Total processed sequences: {len(full_dataset)}")
+    # Split into Train/Val
+    val_split = config.active_llm_config.validation_split
+    split_idx = int(len(full_dataset) * (1 - val_split))
+    
+    train_data = full_dataset[:split_idx]
+    val_data = full_dataset[split_idx:]
+    
+    print(f"Total sequences: {len(full_dataset)}")
+    print(f"Train: {len(train_data)} | Val: {len(val_data)}")
     print(f"Skipped {skipped_movies}/{total_movies} movies in sequences.")
     
     output_path = config.active_dataset.llm_dataset_path
-    torch.save(full_dataset, output_path)
-    print(f"Saved enriched LLM dataset to {output_path}")
+    save_data = {
+        'train': train_data,
+        'val': val_data
+    }
+    torch.save(save_data, output_path)
+    print(f"Saved enriched LLM dataset (Train/Val) to {output_path}")
 
 if __name__ == "__main__":
     prepare_llm_data()

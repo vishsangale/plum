@@ -67,11 +67,19 @@ class PLUMSIDDataset(Dataset):
         return emb1, emb2
 
 class MovieLensLLMDataset(Dataset):
-    def __init__(self, data_path: str, max_len: int = 256):
-        self.data = torch.load(data_path, weights_only=False)
-        # self.data = self.data[:500] # Removed debug limit
+    def __init__(self, data_path: str, max_len: int = 256, split: str = 'train'):
+        loaded_data = torch.load(data_path, weights_only=False)
+        
+        if isinstance(loaded_data, dict):
+            if split not in loaded_data:
+                raise ValueError(f"Split '{split}' not found in dataset. Available: {list(loaded_data.keys())}")
+            self.data = loaded_data[split]
+        else:
+            print("Warning: Dataset is a list (legacy format), using all data.")
+            self.data = loaded_data
+            
         self.max_len = max_len
-        print(f"Loaded {len(self.data)} sequences for LLM training (Subset).")
+        print(f"Loaded {len(self.data)} sequences for LLM training (Split: {split}).")
         
     def __len__(self):
         return len(self.data)
