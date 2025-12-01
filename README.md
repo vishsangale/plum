@@ -19,7 +19,10 @@ Configuration is managed via `plum/config.py`.
 *   `PLUMConfig`: Main configuration class.
 *   `DatasetConfig`: Dataset-specific configuration (paths, dimensions).
 
-Supported datasets are defined in the `datasets` registry in `PLUMConfig`. The default dataset is `movielens-1m`.
+## Supported Datasets
+
+*   `movielens-1m`: Default dataset (1 million ratings).
+*   `movielens-10m`: Larger dataset (10 million ratings).
 
 ## Usage
 
@@ -28,82 +31,88 @@ Supported datasets are defined in the `datasets` registry in `PLUMConfig`. The d
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install torch numpy pandas transformers sentence-transformers tqdm
+pip install torch numpy pandas transformers sentence-transformers tqdm scikit-learn matplotlib seaborn tensorboard
 ```
 
-### 2. Prepare Data (MovieLens 1M)
+### 2. Prepare Data
 
-Download and preprocess the MovieLens 1M dataset. This will:
-*   Download `ml-1m.zip` to `plum/data/movielens-1m/raw/`.
-*   Generate movie embeddings using TinyBERT.
-*   Create user sequences.
-*   Save processed data to `plum/data/movielens-1m/`.
-
+**MovieLens 1M (Default):**
 ```bash
 python -m plum.prepare_movielens
 ```
 
-### 3. Train Semantic ID Model
-
-Train the SID model to generate discrete codes for items.
-
+**MovieLens 10M:**
 ```bash
-python -m plum.train_sid
+python -m plum.prepare_movielens_10m
 ```
 
-This will save the model to `plum/data/movielens-1m/checkpoints/sid_model.pth`.
+### 3. Train Semantic ID Model
+
+Train the SID model. You can specify the dataset and batch size.
+
+```bash
+# For MovieLens 1M
+python -m plum.train_sid --dataset movielens-1m --epochs 20
+
+# For MovieLens 10M (Recommended)
+python -m plum.train_sid --dataset movielens-10m --epochs 10 --batch_size 1024
+```
 
 ### 4. Generate SIDs
 
-Generate Semantic IDs for all movies using the trained SID model.
+Generate Semantic IDs using the trained model.
 
 ```bash
-python -m plum.generate_sids
+python -m plum.generate_sids --dataset movielens-10m
 ```
-
-This saves `movie_sids.json` and `movie_sids.pt`.
 
 ### 5. Prepare LLM Data
 
-Convert user movie sequences into Semantic ID token sequences for LLM training.
+Convert user sequences to SID tokens and create train/val splits.
 
 ```bash
-python -m plum.prepare_llm_data
+python -m plum.prepare_llm_data --dataset movielens-10m
 ```
 
-### 6. Train LLM
+### 6. Validate Embeddings (Optional)
 
-Train the LLM (distilgpt2) to predict the next Semantic ID.
+Check the quality and diversity of input embeddings.
 
 ```bash
-python -m plum.train_llm
+python -m plum.validate_embeddings --dataset movielens-10m
 ```
 
-This saves checkpoints to `plum/data/movielens-1m/checkpoints/`.
+### 7. Train LLM
 
-### 7. Run Inference Demo
-
-Simulate a user history, generate the next Semantic ID using the LLM, and decode it back to recommended movies.
+Train the generative retrieval model.
 
 ```bash
-python -m plum.inference
+# For MovieLens 10M (Adjust batch size for GPU memory)
+python -m plum.train_llm --dataset movielens-10m --epochs 1 --batch_size 8
+```
+
+### 8. Run Inference
+
+Generate recommendations for random user sequences.
+
+```bash
+python -m plum.inference --dataset movielens-10m --num_samples 5
 ```
 
 ## File Structure
 
 *   `plum/`
     *   `config.py`: Configuration and dataset registry.
-    *   `data.py`: Dataset classes (`PLUMSIDDataset`, `MovieLensLLMDataset`).
+    *   `data.py`: Dataset classes.
     *   `sid_model.py`: SID model architecture.
     *   `llm_model.py`: LLM architecture.
-    *   `prepare_movielens.py`: Data preparation script.
-    *   `train_sid.py`: Training script for SID.
-    *   `generate_sids.py`: Script to generate SIDs from trained model.
-    *   `prepare_llm_data.py`: Script to prepare data for LLM.
-    *   `train_llm.py`: Training script for LLM.
-    *   `inference.py`: End-to-end inference demo.
-    *   `data/`: Directory containing dataset-specific files.
-        *   `movielens-1m/`:
-            *   `raw/`: Raw downloaded data.
-            *   `checkpoints/`: Model checkpoints.
-            *   `*.pt`, `*.json`: Processed data files.
+    *   `prepare_movielens.py`: Data prep for ML-1M.
+    *   `prepare_movielens_10m.py`: Data prep for ML-10M.
+    *   `train_sid.py`: SID training script.
+    *   `generate_sids.py`: SID generation script.
+    *   `prepare_llm_data.py`: LLM data prep script.
+    *   `validate_embeddings.py`: Embedding validation script.
+    *   `train_llm.py`: LLM training script.
+    *   `inference.py`: Inference demo.
+    *   `utils.py`: Shared utilities.
+    *   `data/`: Data directory.

@@ -39,7 +39,7 @@ class PLUMSIDDataset(Dataset):
     """
     def __init__(self, config: DatasetConfig):
         self.config = config
-        self.embeddings = torch.load(config.embeddings_path)
+        self.embeddings = torch.load(config.embeddings_path, map_location='cpu')
         self.sequences = torch.load(config.user_sequences_path)
         
         # Pre-compute pairs for faster training

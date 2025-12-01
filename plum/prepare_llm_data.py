@@ -6,9 +6,17 @@ from tqdm import tqdm
 from plum.llm_model import PLUM_LLM
 from plum.config import PLUMConfig
 
+import argparse
+
 def prepare_llm_data():
+    parser = argparse.ArgumentParser(description="Prepare LLM Training Data")
+    parser.add_argument("--dataset", type=str, default="movielens-1m", help="Dataset name (e.g., movielens-1m, movielens-10m)")
+    args = parser.parse_args()
+    
     print("Initializing PLUM LLM to get tokenizer...")
-    config = PLUMConfig()
+    config = PLUMConfig(dataset_name=args.dataset)
+    print(f"Dataset: {config.dataset_name}")
+    
     plum_model = PLUM_LLM(num_levels=config.active_model_config.num_levels, codebook_sizes=config.active_model_config.codebook_sizes)
     tokenizer = plum_model.tokenizer
     
@@ -71,7 +79,7 @@ def prepare_llm_data():
             
         if len(token_seq) > 0:
             llm_dataset.append(token_seq)
-
+ 
     # 2. SID Grounding Tasks
     # Format: "<SID> is movie <Title> (<Genres>)"
     # And: "Movie <Title> (<Genres>) has ID <SID>"

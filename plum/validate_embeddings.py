@@ -7,10 +7,16 @@ import seaborn as sns
 from sklearn.metrics.pairwise import cosine_similarity
 from plum.config import PLUMConfig
 
+import argparse
+
 def validate_embeddings():
     """Validate BERT embeddings generated for MovieLens dataset"""
     
-    config = PLUMConfig(dataset_name="movielens-1m")
+    parser = argparse.ArgumentParser(description="Validate PLUM Embeddings")
+    parser.add_argument("--dataset", type=str, default="movielens-1m", help="Dataset name")
+    args = parser.parse_args()
+    
+    config = PLUMConfig(dataset_name=args.dataset)
     
     # Load embeddings
     print("Loading embeddings...")
@@ -19,8 +25,14 @@ def validate_embeddings():
     
     # Load movie metadata
     raw_dir = config.active_dataset.raw_data_dir
+    
+    if "10m" in config.dataset_name:
+        movies_path = os.path.join(raw_dir, "ml-10M100K/movies.dat")
+    else:
+        movies_path = os.path.join(raw_dir, "ml-1m/movies.dat")
+        
     movies_df = pd.read_csv(
-        os.path.join(raw_dir, "ml-1m/movies.dat"), 
+        movies_path, 
         sep="::", 
         engine="python", 
         names=["MovieID", "Title", "Genres"],

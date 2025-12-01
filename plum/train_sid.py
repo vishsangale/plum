@@ -7,224 +7,228 @@ from plum.data import SyntheticSIDDataset, PLUMSIDDataset
 from plum.config import PLUMConfig
 import os
 
+import argparse
+import torch.nn.functional as F
+from tqdm import tqdm
+import random
+
 def train_sid():
-    # Hyperparameters
-    config = PLUMConfig()
+    parser = argparse.ArgumentParser(description="Train PLUM SID Model")
+    parser.add_argument("--dataset", type=str, default="movielens-1m", help="Dataset name (e.g., movielens-1m, movielens-10m)")
+    parser.add_argument("--epochs", type=int, default=None, help="Number of epochs to train")
+    parser.add_argument("--max_steps", type=int, default=None, help="Maximum number of steps per epoch")
+    parser.add_argument("--batch_size", type=int, default=None, help="Batch size")
+    args = parser.parse_args()
     
-    # Setup TensorBoard
-    writer = SummaryWriter('runs/sid_training')
-    
-    # Setup
-    # dataset = SyntheticSIDDataset(num_samples=1000, input_dims=config.active_dataset.input_dims)
-    dataset = PLUMSIDDataset(config.active_dataset)
-    dataloader = DataLoader(dataset, batch_size=config.active_model_config.batch_size, shuffle=True)
-    
-    model = PLUM_SID(
-        config.active_dataset.input_dims, 
-        config.active_model_config.latent_dim, 
-        config.active_model_config.output_dim, 
-        config.active_model_config.codebook_sizes,
-        kmeans_init=config.active_model_config.kmeans_init
-    )
+    config = PLUMConfig(dataset_name=args.dataset)
+    if args.epochs:
+        config.active_model_config.epochs = args.epochs
+    if args.batch_size:
+        config.active_model_config.batch_size = args.batch_size
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
+    print(f"Using device: {device}")
+    print(f"Dataset: {config.dataset_name}")
     
-    optimizer = torch.optim.Adam(model.parameters(), lr=config.active_model_config.learning_rate)
+    # Print Ablation Settings
+    print(f"Ablations: Contrastive={config.ablation.enable_contrastive_loss}, "
+          f"ProgMask={config.ablation.enable_progressive_masking}, "
+          f"DeadCode={config.ablation.enable_dead_code_revival}")
+
+    # Load Data
+    dataset = PLUMSIDDataset(config.active_dataset)
     
-    # K-means Initialization (if enabled)
-    # We need to run one forward pass with a batch to initialize
+    dataloader = DataLoader(
+        dataset, 
+        batch_size=config.active_model_config.batch_size, 
+        shuffle=True,
+        num_workers=0
+    )
+    
+    # Initialize Model
+    sid_model = PLUM_SID(
+        input_dims=config.active_dataset.input_dims,
+        latent_dim=config.active_model_config.latent_dim,
+        output_dim=config.active_model_config.output_dim,
+        codebook_sizes=config.active_model_config.codebook_sizes,
+        kmeans_init=config.active_model_config.kmeans_init
+    ).to(device)
+    
+    # Initialize Optimizer
+    optimizer = optim.Adam(sid_model.parameters(), lr=config.active_model_config.learning_rate)
+    
+    # Initialize Contrastive Loss
+    contrastive_loss_fn = ContrastiveLoss(temperature=config.active_model_config.contrastive_temperature).to(device)
+    
+    # TensorBoard
+    writer = SummaryWriter(log_dir=f"runs/{config.dataset_name}_sid")
+    
+    # K-Means Initialization
     if config.active_model_config.kmeans_init:
-        print("Running K-means initialization on first batch...")
-        # Get one batch
-        first_batch = next(iter(dataloader))
-        # first_batch is (anchor_embeddings, positive_embeddings)
-        # anchor_embeddings is a list of tensors [tensor(batch, 384)]
-        anchor_embeddings = first_batch[0][0].to(device)
-        
-        # Run encoder to get z
-        with torch.no_grad():
-            z = model.encoder([anchor_embeddings])
-            model.rqvae.init_codebook(z)
-    criterion = ContrastiveLoss(temperature=config.active_model_config.contrastive_temperature)
-    print(f"Contrastive Loss Temperature: {criterion.temperature}")
-    
+        print("Initializing codebooks with K-Means...")
+        # Get one large batch or accumulate
+        # For simplicity, let's just take the first batch
+        try:
+            batch = next(iter(dataloader))
+            emb1, _ = batch
+            # emb1 is list of tensors. Move to device.
+            emb1 = [e.to(device) for e in emb1]
+            
+            with torch.no_grad():
+                z = sid_model.encoder(emb1)
+                sid_model.rqvae.init_codebook(z)
+        except StopIteration:
+            print("Warning: Dataloader empty, skipping K-Means init.")
+
     print("Starting SID Training...")
-    print("Run 'tensorboard --logdir=runs' to view training progress")
-    
     global_step = 0
     
-    # Track cumulative unique codes across all epochs for dead code revival
-    all_time_unique_codes = [set() for _ in range(config.active_model_config.num_levels)]
-    
-    try:
-        for epoch in range(config.active_model_config.epochs):
-            total_loss = 0
-            total_recon_loss = 0
-            total_commitment_loss = 0
-            total_contrastive_loss = 0
-            total_cosine_sim = 0
-            epoch_unique_codes = [set() for _ in range(config.active_model_config.num_levels)]
-            model.train()
-            # Ablation Flags
-            contrastive_weight = config.active_model_config.contrastive_weight if config.ablation.enable_contrastive_loss else 0.0
-            enable_progressive_masking = config.ablation.enable_progressive_masking
-            enable_dead_code_revival = config.ablation.enable_dead_code_revival
-            
-            print(f"\n{'='*60}")
-            print(f"Epoch {epoch+1}/{config.active_model_config.epochs}")
-            print(f"Ablations: Contrastive={config.ablation.enable_contrastive_loss}, ProgMask={enable_progressive_masking}, DeadCode={enable_dead_code_revival}")
-            print(f"{'='*60}\n")
-            
-            for batch_idx, (anchor_embeddings, positive_embeddings) in enumerate(dataloader):
-                # Move to device and L2 normalize
-                anchor_embeddings = [torch.nn.functional.normalize(emb.to(device), p=2, dim=-1) for emb in anchor_embeddings]
-                positive_embeddings = [torch.nn.functional.normalize(emb.to(device), p=2, dim=-1) for emb in positive_embeddings]
-                
-                # Forward pass for anchor
-                reconstructions, z_q, codes, commitment_loss = model(
-                    anchor_embeddings, 
-                    commitment_beta=config.active_model_config.commitment_beta,
-                    dropout_prob=config.active_model_config.level_dropout_prob,
-                    enable_progressive_masking=enable_progressive_masking
-                )
-                
-                # Track unique codes per level
-                for level in range(config.active_model_config.num_levels):
-                    unique_codes_in_batch = torch.unique(codes[:, level]).cpu().tolist()
-                    epoch_unique_codes[level].update(unique_codes_in_batch)
-                    all_time_unique_codes[level].update(unique_codes_in_batch)
-                
-                # Check total unique codes across all levels (using all-time usage)
-                total_unique_codes = sum(len(codes_set) for codes_set in all_time_unique_codes)
-                epoch_total_unique = sum(len(codes_set) for codes_set in epoch_unique_codes)
-                
-                # Safety check: Stop if codebook collapses
-                # Threshold: 20% of total codebook capacity
-                total_capacity = sum(model.rqvae.codebook_sizes)
-                if batch_idx > 1000 and total_unique_codes < (0.2 * total_capacity):
-                    print(f"\n⚠️  STOPPING: Codebook collapse detected! Unique codes: {total_unique_codes} < {0.2 * total_capacity}")
-                    print(f"Contrastive weight {contrastive_weight} is too high. Reduce it or enable more aggressive code reset.")
-                    return
-                
-                # Fixed reconstruction weight from config
-                recon_weight = config.active_model_config.recon_weight
-                
-                # Reconstruction loss
-                recon_loss = sum([torch.mean((emb - recon) ** 2) for emb, recon in zip(anchor_embeddings, reconstructions)])
-                
-                # Cosine similarity - verify content learning
-                cosine_sim = sum([torch.nn.functional.cosine_similarity(emb, recon, dim=-1).mean() 
-                                 for emb, recon in zip(anchor_embeddings, reconstructions)]) / len(anchor_embeddings)
-                
-                # Forward pass for positive (for contrastive loss)
-                # Only run if contrastive loss is enabled to save compute
-                if config.ablation.enable_contrastive_loss:
-                    _, z_q_pos, _, _ = model(positive_embeddings, enable_progressive_masking=enable_progressive_masking)
-                    contrastive_loss = criterion(z_q, z_q_pos)
-                else:
-                    contrastive_loss = torch.tensor(0.0, device=device)
-                
-                # Total loss with adaptive weights
-                loss = recon_weight * recon_loss + commitment_loss + contrastive_weight * contrastive_loss
-                
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                
-                # Log to TensorBoard
-                writer.add_scalar('Loss/Total', loss.item(), global_step)
-                writer.add_scalar('Loss/Reconstruction', recon_loss.item(), global_step)
-                writer.add_scalar('Loss/Commitment', commitment_loss.item(), global_step)
-                writer.add_scalar('Loss/Contrastive', contrastive_loss.item(), global_step)
-                writer.add_scalar('Loss/Weighted_Reconstruction', (recon_weight * recon_loss).item(), global_step)
-                writer.add_scalar('Loss/Weighted_Contrastive', (contrastive_weight * contrastive_loss).item(), global_step)
-                writer.add_scalar('Weights/Reconstruction', recon_weight, global_step)
-                writer.add_scalar('Weights/Contrastive', contrastive_weight, global_step)
-                writer.add_scalar('CodeUsage/Total_Unique', total_unique_codes, global_step)
-                writer.add_scalar('Metrics/Cosine_Similarity', cosine_sim.item(), global_step)
-                
-                total_loss += loss.item()
-                total_recon_loss += recon_loss.item()
-                total_commitment_loss += commitment_loss.item()
-                total_contrastive_loss += contrastive_loss.item()
-                total_cosine_sim += cosine_sim.item()
-                
-                global_step += 1
-                
-                # Reset unused codes every 1000 batches (increased from 100 to avoid killing valid codes early in epoch)
-                if config.active_model_config.enable_dead_code_revival and batch_idx > 0 and batch_idx % 1000 == 0:
-                    with torch.no_grad():
-                        for level in range(config.active_model_config.num_levels):
-                            codebook_size = model.rqvae.codebook_sizes[level]
-                            # Use epoch usage for revival to catch codes that die during training
-                            # The > 1000 batch warmup ensures we don't kill codes just because they haven't been seen YET in this epoch
-                            used_codes = epoch_unique_codes[level]
-                            unused_codes = set(range(codebook_size)) - used_codes
-                            
-                            if len(unused_codes) > 0:
-                                # Reset unused codes to random embeddings from current batch
-                                # Get some random embeddings from the current batch
-                                batch_embeddings = anchor_embeddings[0]  # (batch_size, 384)
-                                
-                                # For each unused code, assign a random embedding from the batch
-                                revived_indices = []
-                                for unused_idx in list(unused_codes)[:min(len(unused_codes), len(batch_embeddings))]:
-                                    random_emb_idx = torch.randint(0, len(batch_embeddings), (1,)).item()
-                                    # Encode the embedding to get the latent representation
-                                    z = model.encoder([batch_embeddings[random_emb_idx:random_emb_idx+1]])
-                                    # Assign to codebook
-                                    model.rqvae.codebooks[level].weight[unused_idx] = z[0]
-                                    revived_indices.append(unused_idx)
-                                
-                                # Mark revived codes as used in this epoch so they aren't immediately reset again
-                                epoch_unique_codes[level].update(revived_indices)
-                                all_time_unique_codes[level].update(revived_indices)
-                                
-                                if batch_idx % 500 == 0:  # Print less frequently
-                                    print(f"  Reset {len(revived_indices)} unused codes at level {level}")
-
-                
-                # Print every 100 batches
-                if batch_idx % 100 == 0:
-                    print(f"Epoch {epoch+1}, Batch {batch_idx}/{len(dataloader)}, "
-                          f"Total: {loss.item():.4f}, Recon: {recon_loss.item():.4f} (w={recon_weight}), "
-                          f"Commit: {commitment_loss.item():.4f}, Contrast: {contrastive_loss.item():.4f} (w={contrastive_weight}), "
-                          f"CosSim: {cosine_sim.item():.4f}, Unique (Epoch): {epoch_total_unique}, Unique (Total): {total_unique_codes}")
-                
-            avg_loss = total_loss / len(dataloader)
-            avg_recon = total_recon_loss / len(dataloader)
-            avg_commit = total_commitment_loss / len(dataloader)
-            avg_contrast = total_contrastive_loss / len(dataloader)
-            avg_cosine = total_cosine_sim / len(dataloader)
-            
-            # Log epoch averages
-            writer.add_scalar('Epoch/Total_Loss', avg_loss, epoch)
-            writer.add_scalar('Epoch/Reconstruction_Loss', avg_recon, epoch)
-            writer.add_scalar('Epoch/Commitment_Loss', avg_commit, epoch)
-            writer.add_scalar('Epoch/Contrastive_Loss', avg_contrast, epoch)
-            writer.add_scalar('Epoch/Cosine_Similarity', avg_cosine, epoch)
-            
-            # Log unique code usage per level
-            for level in range(config.active_model_config.num_levels):
-                unique_count = len(epoch_unique_codes[level])
-                codebook_size = model.rqvae.codebook_sizes[level]
-                usage_pct = (unique_count / codebook_size) * 100
-                writer.add_scalar(f'CodeUsage/Level_{level}_Unique', unique_count, epoch)
-                writer.add_scalar(f'CodeUsage/Level_{level}_Percentage', usage_pct, epoch)
-                print(f"  Level {level}: {unique_count}/{codebook_size} codes used ({usage_pct:.1f}%)")
-            
-            print(f"Epoch {epoch+1}/{config.active_model_config.epochs}, Avg Loss: {avg_loss:.4f} "
-                  f"(Recon: {avg_recon:.4f}, Commit: {avg_commit:.4f}, Contrast: {avg_contrast:.4f}, CosSim: {avg_cosine:.4f})")
+    for epoch in range(config.active_model_config.epochs):
+        sid_model.train()
+        total_loss = 0
+        total_recon_loss = 0
+        total_commit_loss = 0
+        total_contrastive_loss = 0
         
-    except KeyboardInterrupt:
-        print("\nTraining interrupted by user.")
-    finally:
-        # Save model
-        writer.close()
+        # Track code usage
+        epoch_unique_codes = [set() for _ in range(config.active_model_config.num_levels)]
+        
+        progress_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{config.active_model_config.epochs}")
+        
+        for batch_idx, (emb1, emb2) in enumerate(progress_bar):
+            if args.max_steps and batch_idx >= args.max_steps:
+                break
+            emb1 = [e.to(device) for e in emb1]
+            emb2 = [e.to(device) for e in emb2]
+            
+            optimizer.zero_grad()
+            
+            # --- Forward Pass ---
+            # 1. Reconstruction (RQ-VAE) on emb1
+            # Apply progressive masking if enabled
+            # Note: RQVAE handles random depth selection internally if enable_progressive_masking=True
+            recon_x, v_q, codes, commit_loss = sid_model(
+                emb1, 
+                training=True,
+                commitment_beta=config.active_model_config.commitment_beta,
+                dropout_prob=config.active_model_config.level_dropout_prob,
+                enable_progressive_masking=config.ablation.enable_progressive_masking
+            )
+            
+            # Track code usage (per level)
+            for l in range(codes.shape[1]):
+                epoch_unique_codes[l].update(codes[:, l].tolist())
+            
+            # Reconstruction Loss (MSE)
+            recon_loss = 0
+            for r_x, e in zip(recon_x, emb1):
+                recon_loss += F.mse_loss(r_x, e)
+            
+            # 2. Contrastive Loss & Cosine Similarity
+            cos_sim = 0.0
+            if config.ablation.enable_contrastive_loss:
+                # Forward pass for emb2
+                _, v_q2, _, _ = sid_model(
+                    emb2,
+                    training=True,
+                    commitment_beta=config.active_model_config.commitment_beta,
+                    dropout_prob=0.0, # No dropout for target
+                    enable_progressive_masking=False # No masking for target
+                ) 
+                contrast_loss = contrastive_loss_fn(v_q, v_q2)
+                with torch.no_grad():
+                    cos_sim = F.cosine_similarity(v_q, v_q2).mean().item()
+            else:
+                contrast_loss = torch.tensor(0.0, device=device)
+            
+            # Total Loss
+            loss = (config.active_model_config.recon_weight * recon_loss) + \
+                   commit_loss + \
+                   (config.active_model_config.contrastive_weight * contrast_loss)
+                   
+            loss.backward()
+            optimizer.step()
+            
+            # --- Dead Code Revival ---
+            if config.ablation.enable_dead_code_revival and batch_idx > 0 and batch_idx % 1000 == 0:
+                with torch.no_grad():
+                    for level in range(config.active_model_config.num_levels):
+                        codebook_size = config.active_model_config.codebook_sizes[level]
+                        used_codes = epoch_unique_codes[level]
+                        unused_codes = set(range(codebook_size)) - used_codes
+                        
+                        if len(unused_codes) > 0:
+                            # Reset unused codes to random embeddings from current batch
+                            # Get some random embeddings from the current batch (emb1 is list of tensors)
+                            # We use the first modality for simplicity, or fused z if accessible.
+                            # Let's use the encoder to get z from the current batch
+                            z_batch = sid_model.encoder(emb1) # (batch_size, output_dim)
+                            
+                            revived_indices = []
+                            # Revive up to batch_size codes
+                            n_to_revive = min(len(unused_codes), len(z_batch))
+                            
+                            for i, unused_idx in enumerate(list(unused_codes)[:n_to_revive]):
+                                # Assign random z from batch
+                                random_idx = torch.randint(0, len(z_batch), (1,)).item()
+                                sid_model.rqvae.codebooks[level].weight.data[unused_idx] = z_batch[random_idx]
+                                revived_indices.append(unused_idx)
+                            
+                            # Mark revived codes as used so they aren't reset again immediately
+                            epoch_unique_codes[level].update(revived_indices)
+                            
+                            if batch_idx % 500 == 0:
+                                print(f"  [Revival] Reset {len(revived_indices)} unused codes at level {level}")
+
+            # Logging
+            total_loss += loss.item()
+            total_recon_loss += recon_loss.item()
+            total_commit_loss += commit_loss.item()
+            total_contrastive_loss += contrast_loss.item()
+            
+            progress_bar.set_postfix({
+                'loss': loss.item(), 
+                'recon': recon_loss.item(),
+                'commit': commit_loss.item(),
+                'contrast': contrast_loss.item(),
+                'sim': cos_sim
+            })
+            
+            writer.add_scalar('SID/Loss', loss.item(), global_step)
+            writer.add_scalar('SID/Recon_Loss', recon_loss.item(), global_step)
+            writer.add_scalar('SID/Commit_Loss', commit_loss.item(), global_step)
+            writer.add_scalar('SID/Contrast_Loss', contrast_loss.item(), global_step)
+            writer.add_scalar('SID/Cosine_Sim', cos_sim, global_step)
+            global_step += 1
+            
+        # End of Epoch Stats
+        avg_loss = total_loss / len(dataloader)
+        avg_recon = total_recon_loss / len(dataloader)
+        avg_commit = total_commit_loss / len(dataloader)
+        avg_contrast = total_contrastive_loss / len(dataloader)
+        
+        # Calculate Cosine Similarity for monitoring
+        with torch.no_grad():
+             cos_sim = F.cosine_similarity(v_q, v_q2).mean().item() if config.ablation.enable_contrastive_loss else 0.0
+        
+        total_unique = sum(len(s) for s in epoch_unique_codes)
+        print(f"Epoch {epoch+1}, Batch {batch_idx+1}/{len(dataloader)}, "
+              f"Total: {avg_loss:.4f}, Recon: {avg_recon:.4f} (w={config.active_model_config.recon_weight}), "
+              f"Commit: {avg_commit:.4f}, Contrast: {avg_contrast:.4f} (w={config.active_model_config.contrastive_weight}), "
+              f"CosSim: {cos_sim:.4f}, "
+              f"Unique (Epoch): {total_unique}")
+              
+        writer.add_scalar('SID/Epoch_Loss', avg_loss, epoch)
+        writer.add_scalar('SID/Unique_Codes', total_unique, epoch)
+             
+        # Save Checkpoint
         os.makedirs(config.active_dataset.checkpoint_dir, exist_ok=True)
-        save_path = os.path.join(config.active_dataset.checkpoint_dir, config.sid_model_checkpoint)
-        torch.save(model.state_dict(), save_path)
-        print(f"Model saved to {save_path}")
+        torch.save(sid_model.state_dict(), os.path.join(config.active_dataset.checkpoint_dir, f"sid_model_epoch_{epoch+1}.pth"))
+        
+    # Save Final Model
+    final_path = os.path.join(config.active_dataset.checkpoint_dir, config.sid_model_checkpoint)
+    torch.save(sid_model.state_dict(), final_path)
+    print(f"Saved SID model to {final_path}")
+
 
 if __name__ == "__main__":
     train_sid()

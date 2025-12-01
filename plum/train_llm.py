@@ -12,27 +12,41 @@ from tqdm import tqdm
 
 from torch.utils.tensorboard import SummaryWriter
 
+import argparse
+
 def train_llm():
-    config = PLUMConfig()
-    # Hyperparameters from config
-    # batch_size, lr, epochs are now in config.active_model_config
+    parser = argparse.ArgumentParser(description="Train PLUM LLM")
+    parser.add_argument("--dataset", type=str, default="movielens-1m", help="Dataset name (e.g., movielens-1m, movielens-10m)")
+    parser.add_argument("--epochs", type=int, default=None, help="Number of epochs to train")
+    parser.add_argument("--max_steps", type=int, default=None, help="Maximum number of steps per epoch")
+    parser.add_argument("--batch_size", type=int, default=None, help="Batch size")
+    args = parser.parse_args()
+    
+    config = PLUMConfig(dataset_name=args.dataset)
+    if args.epochs:
+        config.active_llm_config.epochs = args.epochs
+    if args.batch_size:
+        config.active_llm_config.batch_size = args.batch_size
+        
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    print(f"Dataset: {config.dataset_name}")
     
     # Setup TensorBoard
-    writer = SummaryWriter('runs/llm_training')
+    writer = SummaryWriter(log_dir=f"runs/{config.dataset_name}_llm")
     
     # Initialize Model
     # Using distilgpt2 for faster training
     # Note: load_plum_models is for inference usually (loading checkpoints), 
     # but we can use PLUM_LLM directly for training from scratch/pretrained base.
-    plum_model = PLUM_LLM(model_name=config.active_llm_config.model_name, num_levels=config.active_model_config.num_levels, codebook_sizes=config.active_model_config.codebook_sizes)
+    # We need to know codebook sizes to initialize the tokenizer correctly
+    plum_model = PLUM_LLM(
+        model_name=config.active_llm_config.model_name,
+        num_levels=config.active_model_config.num_levels,
+        codebook_sizes=config.active_model_config.codebook_sizes
+    )
     
     # Move to device
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-    else:
-        device = torch.device("cpu")
     plum_model.to(device)
     plum_model.train()
     
@@ -62,7 +76,7 @@ def train_llm():
     
     optimizer = optim.AdamW(plum_model.parameters(), lr=config.active_llm_config.learning_rate)
     
-    print(f"Starting LLM Training (distilgpt2) on {device}...")
+    print(f"Starting LLM Training ({config.active_llm_config.model_name}) on {device}...")
     
     global_step = 0
     best_val_loss = float('inf')
@@ -74,6 +88,8 @@ def train_llm():
         progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch+1}/{config.active_llm_config.epochs} [Train]")
         
         for batch_idx, (input_ids, attention_mask) in enumerate(progress_bar):
+            if args.max_steps and batch_idx >= args.max_steps:
+                break
             input_ids = input_ids.to(device)
             attention_mask = attention_mask.to(device)
             
@@ -90,6 +106,15 @@ def train_llm():
             
             # Log to TensorBoard
             writer.add_scalar('LLM/Train_Loss', loss.item(), global_step)
+            
+            # Save checkpoint every 100 steps
+            if global_step > 0 and global_step % 100 == 0:
+                step_path = os.path.join(config.active_dataset.checkpoint_dir, f"plum_llm_step_{global_step}")
+                plum_model.save_pretrained(step_path)
+                # Also update 'final' for immediate use
+                final_path = os.path.join(config.active_dataset.checkpoint_dir, config.llm_checkpoint_dir)
+                plum_model.save_pretrained(final_path)
+                
             global_step += 1
             
         avg_train_loss = total_loss / len(train_dataloader)

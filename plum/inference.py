@@ -122,53 +122,68 @@ def recommend_next_movie(history_movie_ids, sid_model, llm_model, movie_sids, si
             
     return recommendations, outputs, input_ids
 
+import argparse
+
 def run_inference():
-    config = PLUMConfig()
+    parser = argparse.ArgumentParser(description="Run PLUM Inference")
+    parser.add_argument("--dataset", type=str, default="movielens-1m", help="Dataset name (e.g., movielens-1m, movielens-10m)")
+    parser.add_argument("--num_samples", type=int, default=1, help="Number of random user sequences to test")
+    args = parser.parse_args()
+    
+    config = PLUMConfig(dataset_name=args.dataset)
+    print(f"Dataset: {config.dataset_name}")
+    
     sid_model, llm_model, device = load_plum_models(config)
     movie_sids, sid_to_movies = load_mappings(config)
     
     # Simulate User History (from real data)
     user_sequences = torch.load(config.active_dataset.user_sequences_path, weights_only=False)
-    # Pick a sequence that has some length
-    test_seq = []
-    for seq in user_sequences:
-        if len(seq) >= 5:
-            test_seq = seq[:5]
-            break
-            
-    print(f"\nUser History (Movie IDs): {test_seq}")
-    print("History Details:")
-    for mid in test_seq:
-        data = movie_sids.get(str(mid))
-        if isinstance(data, dict):
-            print(f"  {mid}: {data['title']} ({data['genres']}) [{data['sid']}]")
-        else:
-            print(f"  {mid}: {data}")
-        
-    recommendations, outputs, input_ids = recommend_next_movie(test_seq, sid_model, llm_model, movie_sids, sid_to_movies, device, config)
     
-    print(f"\nTop Recommendations:")
-    if not recommendations:
-        print("No valid SIDs found in outputs.")
-        print("Raw outputs:")
-        for i, output_seq in enumerate(outputs):
-             generated_part = output_seq[len(input_ids[0]):]
-             print(f"  Rank {i+1}: {llm_model.tokenizer.decode(generated_part)}")
-             
-    for rec in recommendations:
-        print(f"\nRank {rec['rank']}:")
-        print(f"  Generated Text: {rec['text']}")
-        print(f"  Detected SID: {rec['sid']}")
-        if rec['movies']:
-            print(f"  Matched Movies ({len(rec['movies'])}):")
-            for mid in rec['movies'][:3]: # Show top 3 matches
-                data = movie_sids.get(str(mid))
-                if isinstance(data, dict):
-                     print(f"    - {data['title']} ({data['genres']})")
-                else:
-                     print(f"    - ID {mid}")
-        else:
-            print("  (No exact match found for SID)")
+    # Pick random sequences
+    import random
+    valid_sequences = [seq for seq in user_sequences if len(seq) >= 5]
+    test_sequences = random.sample(valid_sequences, min(args.num_samples, len(valid_sequences)))
+    
+    for i, test_seq in enumerate(test_sequences):
+        test_seq = test_seq[:5] # Use first 5 items as history
+        
+        print(f"\n{'='*40}")
+        print(f"Sample {i+1}/{len(test_sequences)}")
+        print(f"{'='*40}")
+        
+        print(f"User History (Movie IDs): {test_seq}")
+        print("History Details:")
+        for mid in test_seq:
+            data = movie_sids.get(str(mid))
+            if isinstance(data, dict):
+                print(f"  {mid}: {data['title']} ({data['genres']}) [{data['sid']}]")
+            else:
+                print(f"  {mid}: {data}")
+            
+        recommendations, outputs, input_ids = recommend_next_movie(test_seq, sid_model, llm_model, movie_sids, sid_to_movies, device, config)
+        
+        print(f"\nTop Recommendations:")
+        if not recommendations:
+            print("No valid SIDs found in outputs.")
+            print("Raw outputs:")
+            for j, output_seq in enumerate(outputs):
+                 generated_part = output_seq[len(input_ids[0]):]
+                 print(f"  Rank {j+1}: {llm_model.tokenizer.decode(generated_part)}")
+                 
+        for rec in recommendations:
+            print(f"\nRank {rec['rank']}:")
+            print(f"  Generated Text: {rec['text']}")
+            print(f"  Detected SID: {rec['sid']}")
+            if rec['movies']:
+                print(f"  Matched Movies ({len(rec['movies'])}):")
+                for mid in rec['movies'][:3]: # Show top 3 matches
+                    data = movie_sids.get(str(mid))
+                    if isinstance(data, dict):
+                         print(f"    - {data['title']} ({data['genres']})")
+                    else:
+                         print(f"    - ID {mid}")
+            else:
+                print("  (No exact match found for SID)")
 
 if __name__ == "__main__":
     run_inference()
