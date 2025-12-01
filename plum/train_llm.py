@@ -67,17 +67,22 @@ def train_llm():
         train_dataset,
         batch_size=config.active_llm_config.batch_size,
         shuffle=True,
-        collate_fn=partial(collate_fn, pad_token_id=pad_token_id)
+        collate_fn=partial(collate_fn, pad_token_id=pad_token_id),
+        num_workers=4,
+        pin_memory=True
     )
     
     val_dataloader = DataLoader(
         val_dataset,
         batch_size=config.active_llm_config.batch_size,
         shuffle=False,
-        collate_fn=partial(collate_fn, pad_token_id=pad_token_id)
+        collate_fn=partial(collate_fn, pad_token_id=pad_token_id),
+        num_workers=4,
+        pin_memory=True
     )
     
     optimizer = optim.AdamW(plum_model.parameters(), lr=config.active_llm_config.learning_rate)
+    scaler = torch.amp.GradScaler('cuda')
     
     print(f"Starting LLM Training ({config.active_llm_config.model_name}) on {device}...")
     
@@ -93,16 +98,20 @@ def train_llm():
         for batch_idx, (input_ids, attention_mask) in enumerate(progress_bar):
             if args.max_steps and batch_idx >= args.max_steps:
                 break
-            input_ids = input_ids.to(device)
-            attention_mask = attention_mask.to(device)
-            
-            # GPT-2 forward computes loss automatically if labels are provided
-            outputs = plum_model(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)
-            loss = outputs.loss
+            input_ids = input_ids.to(device, non_blocking=True)
+            attention_mask = attention_mask.to(device, non_blocking=True)
             
             optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            
+            # Mixed Precision Training
+            with torch.amp.autocast('cuda'):
+                # GPT-2 forward computes loss automatically if labels are provided
+                outputs = plum_model(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)
+                loss = outputs.loss
+            
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
             
             total_loss += loss.item()
             progress_bar.set_postfix({'loss': loss.item()})
