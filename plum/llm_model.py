@@ -7,17 +7,22 @@ class PLUM_LLM(nn.Module):
     PLUM Generative Retrieval Model using pre-trained GPT-2.
     Extends the vocabulary with Semantic ID tokens.
     """
-    def __init__(self, model_name: str = 'gpt2', num_levels: int = 3, codebook_sizes: list = None):
+    def __init__(self, model_name: str = 'gpt2', num_levels: int = 3, codebook_sizes: list = None, load_model: bool = True):
         super().__init__()
         
         # Load pre-trained model and tokenizer
         self.tokenizer = GPT2Tokenizer.from_pretrained(model_name)
-        self.model = GPT2LMHeadModel.from_pretrained(model_name)
+        
+        if load_model:
+            self.model = GPT2LMHeadModel.from_pretrained(model_name)
+        else:
+            self.model = None
         
         # Add pad token if missing (GPT-2 doesn't have one by default)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-            self.model.config.pad_token_id = self.model.config.eos_token_id
+            if self.model:
+                self.model.config.pad_token_id = self.model.config.eos_token_id
             
         # Calculate SID tokens
         self.num_levels = num_levels
@@ -46,7 +51,8 @@ class PLUM_LLM(nn.Module):
         print(f"Added {num_added_toks} SID tokens to vocabulary.")
         
         # Resize model embeddings
-        self.model.resize_token_embeddings(len(self.tokenizer))
+        if self.model:
+            self.model.resize_token_embeddings(len(self.tokenizer))
         
     def forward(self, input_ids, attention_mask=None, labels=None):
         return self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
@@ -58,7 +64,8 @@ class PLUM_LLM(nn.Module):
         return None
         
     def save_pretrained(self, path: str):
-        self.model.save_pretrained(path)
+        if self.model:
+            self.model.save_pretrained(path)
         self.tokenizer.save_pretrained(path)
 
 # Helper to get tokenizer separately if needed, but usually attached to model wrapper

@@ -17,7 +17,7 @@ def prepare_llm_data():
     config = PLUMConfig(dataset_name=args.dataset)
     print(f"Dataset: {config.dataset_name}")
     
-    plum_model = PLUM_LLM(num_levels=config.active_model_config.num_levels, codebook_sizes=config.active_model_config.codebook_sizes)
+    plum_model = PLUM_LLM(num_levels=config.active_model_config.num_levels, codebook_sizes=config.active_model_config.codebook_sizes, load_model=False)
     tokenizer = plum_model.tokenizer
     
     print("Loading data...")
@@ -33,6 +33,50 @@ def prepare_llm_data():
         
     print(f"Loaded {len(user_sequences)} user sequences.")
     
+    # --- Optimization: Pre-compute Movie Tokens ---
+    print("Pre-computing movie tokens...")
+    movie_token_cache = {}
+    
+    # Static tokens
+    start_prompt_tokens = tokenizer.encode("User History: ")
+    separator_tokens = tokenizer.encode(", ")
+    
+    for mid_str, data in tqdm(movie_sids.items(), desc="Caching Movies"):
+        if not isinstance(data, dict): continue
+        
+        sid_str = data.get("sid")
+        title = data.get("title", "Unknown")
+        genres = data.get("genres", "Unknown")
+        
+        if not sid_str: continue
+        
+        # 1. Text Tokens (without rating)
+        # "Movie: Title (Genres) "
+        base_text = f"Movie: {title} ({genres}) "
+        text_tokens = tokenizer.encode(base_text)
+        
+        # 2. SID Tokens
+        sid_tokens = []
+        codes = [int(c) for c in sid_str.split('-')]
+        for level, code in enumerate(codes):
+            tid = plum_model.get_sid_token_id(level, code)
+            if tid is not None:
+                sid_tokens.append(tid)
+                
+        movie_token_cache[mid_str] = {
+            "text": text_tokens,
+            "sid": sid_tokens
+        }
+        
+    # Cache rating tokens: "Rating: X "
+    # We'll bucket/int cast ratings: 0, 1, 2, 3, 4, 5
+    rating_token_cache = {}
+    for r in range(6):
+        rating_token_cache[r] = tokenizer.encode(f"Rating: {r} ")
+        # Also handle halves if we want, but let's stick to ints for speed/vocab as requested?
+        # User asked: "bucket or int-cast ratings (e.g., R=5, R=Med/High/Low)"
+        # Let's do int casting.
+        
     llm_dataset = []
     skipped_movies = 0
     total_movies = 0
@@ -40,56 +84,52 @@ def prepare_llm_data():
     # 1. Enriched User Sequences
     # Format: "Movie: <Title> (<Genres>) Rating: <Rating> <SID>"
     print("Generating Enriched User Sequences...")
+    
     for seq_data in tqdm(user_sequences, desc="User Sequences"):
         token_seq = []
         
-        # Handle both old (list) and new (dict) formats for backward compatibility if needed,
-        # but we expect dict now.
+        # Handle both old (list) and new (dict) formats
         if isinstance(seq_data, dict):
             seq = seq_data["items"]
             ratings = seq_data["ratings"]
         else:
             seq = seq_data
-            ratings = [None] * len(seq) # No ratings available
+            ratings = [None] * len(seq)
+            
+        # Truncate history up front!
+        # Limit to last 20 items
+        MAX_HISTORY = 20
+        if len(seq) > MAX_HISTORY:
+            seq = seq[-MAX_HISTORY:]
+            ratings = ratings[-MAX_HISTORY:]
         
-        # Add a start prompt for the sequence
-        # "User History: "
-        token_seq.extend(tokenizer.encode("User History: "))
+        token_seq.extend(start_prompt_tokens)
         
         for i, movie_idx in enumerate(seq):
             total_movies += 1
-            sid_data = movie_sids.get(str(movie_idx))
+            mid_str = str(movie_idx)
             
-            if not sid_data or not isinstance(sid_data, dict):
+            cached = movie_token_cache.get(mid_str)
+            if not cached:
                 skipped_movies += 1
                 continue
             
-            sid_str = sid_data.get("sid")
-            title = sid_data.get("title", "Unknown")
-            genres = sid_data.get("genres", "Unknown")
+            # Add Text
+            token_seq.extend(cached["text"])
+            
+            # Add Rating
             rating = ratings[i]
-            
-            if not sid_str:
-                skipped_movies += 1
-                continue
-                
-            # Text Part: "Movie: Title (Genres) Rating: X.X "
             if rating is not None:
-                text_prompt = f"Movie: {title} ({genres}) Rating: {rating} "
-            else:
-                text_prompt = f"Movie: {title} ({genres}) "
-                
-            token_seq.extend(tokenizer.encode(text_prompt))
+                # Int cast
+                r_int = int(round(float(rating)))
+                r_int = max(0, min(5, r_int)) # Clamp 0-5
+                token_seq.extend(rating_token_cache[r_int])
             
-            # SID Part: <SID_Tokens>
-            codes = [int(c) for c in sid_str.split('-')]
-            for level, code in enumerate(codes):
-                tid = plum_model.get_sid_token_id(level, code)
-                if tid is not None:
-                    token_seq.append(tid)
+            # Add SID
+            token_seq.extend(cached["sid"])
             
-            # Add a separator (comma or space)
-            token_seq.extend(tokenizer.encode(", "))
+            # Add Separator
+            token_seq.extend(separator_tokens)
             
         if len(token_seq) > 0:
             llm_dataset.append(token_seq)

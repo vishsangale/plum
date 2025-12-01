@@ -55,8 +55,11 @@ def train_llm():
     if not os.path.exists(dataset_path):
         raise FileNotFoundError(f"Dataset not found at {dataset_path}")
         
-    train_dataset = MovieLensLLMDataset(dataset_path, max_len=config.active_llm_config.max_seq_len, split='train')
-    val_dataset = MovieLensLLMDataset(dataset_path, max_len=config.active_llm_config.max_seq_len, split='val')
+    print(f"Loading dataset from {dataset_path}...")
+    full_data = torch.load(dataset_path, weights_only=False)
+        
+    train_dataset = MovieLensLLMDataset(full_data, max_len=config.active_llm_config.max_seq_len, split='train')
+    val_dataset = MovieLensLLMDataset(full_data, max_len=config.active_llm_config.max_seq_len, split='val')
     
     pad_token_id = plum_model.tokenizer.pad_token_id
     
