@@ -38,16 +38,25 @@ def prepare_llm_data():
     total_movies = 0
     
     # 1. Enriched User Sequences
-    # Format: "Movie: <Title> (<Genres>) <SID>"
+    # Format: "Movie: <Title> (<Genres>) Rating: <Rating> <SID>"
     print("Generating Enriched User Sequences...")
-    for seq in tqdm(user_sequences, desc="User Sequences"):
+    for seq_data in tqdm(user_sequences, desc="User Sequences"):
         token_seq = []
+        
+        # Handle both old (list) and new (dict) formats for backward compatibility if needed,
+        # but we expect dict now.
+        if isinstance(seq_data, dict):
+            seq = seq_data["items"]
+            ratings = seq_data["ratings"]
+        else:
+            seq = seq_data
+            ratings = [None] * len(seq) # No ratings available
         
         # Add a start prompt for the sequence
         # "User History: "
         token_seq.extend(tokenizer.encode("User History: "))
         
-        for movie_idx in seq:
+        for i, movie_idx in enumerate(seq):
             total_movies += 1
             sid_data = movie_sids.get(str(movie_idx))
             
@@ -58,13 +67,18 @@ def prepare_llm_data():
             sid_str = sid_data.get("sid")
             title = sid_data.get("title", "Unknown")
             genres = sid_data.get("genres", "Unknown")
+            rating = ratings[i]
             
             if not sid_str:
                 skipped_movies += 1
                 continue
                 
-            # Text Part: "Movie: Title (Genres) "
-            text_prompt = f"Movie: {title} ({genres}) "
+            # Text Part: "Movie: Title (Genres) Rating: X.X "
+            if rating is not None:
+                text_prompt = f"Movie: {title} ({genres}) Rating: {rating} "
+            else:
+                text_prompt = f"Movie: {title} ({genres}) "
+                
             token_seq.extend(tokenizer.encode(text_prompt))
             
             # SID Part: <SID_Tokens>
@@ -127,6 +141,7 @@ def prepare_llm_data():
     # Combine datasets
     # We can upsample grounding tasks if needed, but for now just mix them
     full_dataset = llm_dataset + grounding_dataset
+    random.seed(42) # Ensure deterministic split
     random.shuffle(full_dataset)
     
     # Split into Train/Val

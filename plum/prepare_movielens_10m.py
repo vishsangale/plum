@@ -98,7 +98,25 @@ def prepare_data():
         indices = [movie_id_to_idx[mid] for mid in movie_ids if mid in movie_id_to_idx]
         
         if len(indices) >= 5: # Only keep sequences with at least 5 items
-            user_sequences.append(indices)
+            # Store both indices and ratings
+            ratings = group["Rating"].values
+            # Filter ratings to match indices (since we filtered indices)
+            # Note: indices construction above iterates movie_ids. We need to be careful to keep alignment.
+            
+            # Let's redo the filtering to be safe and keep them aligned
+            seq_indices = []
+            seq_ratings = []
+            
+            for mid, rating in zip(movie_ids, ratings):
+                if mid in movie_id_to_idx:
+                    seq_indices.append(movie_id_to_idx[mid])
+                    seq_ratings.append(rating)
+            
+            if len(seq_indices) >= 5:
+                user_sequences.append({
+                    "items": seq_indices,
+                    "ratings": seq_ratings
+                })
             
     torch.save(user_sequences, config.active_dataset.user_sequences_path)
     print(f"Saved {len(user_sequences)} user sequences.")
