@@ -19,19 +19,13 @@ def recommend_next_movie(history_movie_ids, sid_model, llm_model, movie_sids, si
     
     for i, mid in enumerate(history_movie_ids):
         sid_data = movie_sids.get(str(mid))
-        if not sid_data:
+        if not sid_data or not isinstance(sid_data, dict):
             skipped_ids.append(mid)
             continue
             
-        if isinstance(sid_data, dict):
-            sid_str = sid_data.get("sid")
-            title = sid_data.get("title", "Unknown")
-            genres = sid_data.get("genres", "Unknown")
-        else:
-            sid_str = sid_data
-            title = "Unknown"
-            genres = "Unknown"
-            
+        sid_str = sid_data.get("sid")
+        title = sid_data.get("title", "Unknown")
+        genres = sid_data.get("genres", "Unknown")
         rating = ratings[i]
             
         if not sid_str:
@@ -40,9 +34,14 @@ def recommend_next_movie(history_movie_ids, sid_model, llm_model, movie_sids, si
             
         # Text Part
         if rating is not None:
-             text_prompt = f"Movie: {title} ({genres}) Rating: {rating} "
+            try:
+                r_int = int(round(float(rating)))
+                r_int = max(0, min(5, r_int))
+                text_prompt = f"Movie: {title} ({genres}) Rating: {r_int} "
+            except ValueError:
+                text_prompt = f"Movie: {title} ({genres}) "
         else:
-             text_prompt = f"Movie: {title} ({genres}) "
+            text_prompt = f"Movie: {title} ({genres}) "
              
         prompt_tokens.extend(tokenizer.encode(text_prompt))
         
@@ -56,6 +55,9 @@ def recommend_next_movie(history_movie_ids, sid_model, llm_model, movie_sids, si
         # Separator
         prompt_tokens.extend(tokenizer.encode(", "))
 
+    # Kickstart generation for next item
+    prompt_tokens.extend(tokenizer.encode("Movie:"))
+    
     if len(prompt_tokens) == 0:
         raise ValueError(f"Cannot run inference: no tokens built.")
 
