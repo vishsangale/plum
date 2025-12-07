@@ -39,12 +39,18 @@ class PLUMSIDDataset(Dataset):
     """
     def __init__(self, config: DatasetConfig):
         self.config = config
-        self.embeddings = torch.load(config.embeddings_path, map_location='cpu')
-        self.sequences = torch.load(config.user_sequences_path)
+        self.embeddings = torch.load(config.embeddings_path, map_location='cpu', weights_only=False)
+        self.sequences = torch.load(config.user_sequences_path, weights_only=False)
         
         # Pre-compute pairs for faster training
         self.pairs = []
-        for seq in self.sequences:
+        for seq_data in self.sequences:
+            # Handle both old (list) and new (dict) formats
+            if isinstance(seq_data, dict):
+                seq = seq_data["items"]
+            else:
+                seq = seq_data
+                
             # seq is list of movie indices
             # Generate pairs (seq[i], seq[i+1])
             for i in range(len(seq) - 1):

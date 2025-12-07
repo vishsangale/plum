@@ -95,6 +95,19 @@ class PLUMConfig:
             raw_data_dir="plum/data/movielens-10m/raw",
             model_config_name="movielens-10m",
             llm_config_name="movielens-10m"
+        ),
+        "movielens-25m": DatasetConfig(
+            name="movielens-25m",
+            input_dims=[384],
+            embeddings_path="plum/data/movielens-25m/movie_embeddings.pt",
+            user_sequences_path="plum/data/movielens-25m/user_sequences.pt",
+            movie_sids_json_path="plum/data/movielens-25m/movie_sids.json",
+            movie_sids_pt_path="plum/data/movielens-25m/movie_sids.pt",
+            llm_dataset_path="plum/data/movielens-25m/llm_dataset.pt",
+            checkpoint_dir="plum/data/movielens-25m/checkpoints",
+            raw_data_dir="plum/data/movielens-25m/raw",
+            model_config_name="movielens-25m",
+            llm_config_name="movielens-25m"
         )
     })
     
@@ -140,6 +153,19 @@ class PLUMConfig:
             commitment_beta=0.25,
             recon_weight=500.0,
             contrastive_weight=1.0
+        ),
+        "movielens-25m": ModelConfig(
+            name="movielens-25m",
+            latent_dim=256,
+            output_dim=256,
+            codebook_sizes=[512, 256, 128], # Reverted to original size as it provides best uniqueness
+            batch_size=4096, # Increased to 4096 based on available GPU memory
+            learning_rate=1e-3,
+            epochs=1, # Reduced to 1 epoch as per user request
+            contrastive_temperature=0.07,
+            commitment_beta=0.25,
+            recon_weight=500.0,
+            contrastive_weight=1.0
         )
     })
     
@@ -181,6 +207,13 @@ class PLUMConfig:
             name="movielens-10m",
             model_name="distilgpt2",
             batch_size=64,
+            learning_rate=5e-5,
+            epochs=5
+        ),
+        "movielens-25m": LLMConfig(
+            name="movielens-25m",
+            model_name="distilgpt2",
+            batch_size=4, # Reduced further to avoid OOM
             learning_rate=5e-5,
             epochs=5
         )

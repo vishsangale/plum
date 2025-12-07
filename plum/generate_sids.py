@@ -46,7 +46,7 @@ def generate_sids():
     
     # Generate SIDs
     print("Generating SIDs...")
-    batch_size = 256
+    batch_size = 4096 # Increased for speed
     all_codes = []
     
     # Process in batches
@@ -86,18 +86,26 @@ def generate_sids():
         movies_path = os.path.join(raw_dir, "ml-1m/movies.dat")
     elif config.dataset_name == "movielens-10m":
         movies_path = os.path.join(raw_dir, "ml-10M100K/movies.dat")
+    elif config.dataset_name == "movielens-25m":
+        movies_path = os.path.join(raw_dir, "ml-25m/movies.csv")
     else:
         movies_path = None
         
     if movies_path and os.path.exists(movies_path):
         print(f"Loading metadata from {movies_path}")
-        movies_df = pd.read_csv(
-            movies_path, 
-            sep="::", 
-            engine="python", 
-            names=["MovieID", "Title", "Genres"],
-            encoding="latin-1"
-        )
+        if config.dataset_name == "movielens-25m":
+             movies_df = pd.read_csv(movies_path)
+             # Rename columns to match expected format if needed, or adjust access below
+             # ML-25M: movieId, title, genres
+             movies_df = movies_df.rename(columns={"movieId": "MovieID", "title": "Title", "genres": "Genres"})
+        else:
+            movies_df = pd.read_csv(
+                movies_path, 
+                sep="::", 
+                engine="python", 
+                names=["MovieID", "Title", "Genres"],
+                encoding="latin-1"
+            )
         # Assuming embeddings were generated from this DF in order
         # We can just use iloc
     else:
