@@ -1,6 +1,6 @@
 # PLUM Implementation
 
-This repository contains a PyTorch implementation of the [PLUM]([url](https://arxiv.org/abs/2510.07784)) framework (Pre-trained Language Models for Industrial-scale Generative Recommendations).
+This repository contains a PyTorch implementation of the [PLUM](https://arxiv.org/abs/2510.07784) framework (Pre-trained Language Models for Industrial-scale Generative Recommendations).
 
 ## Components
 
